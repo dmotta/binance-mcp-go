@@ -1,2 +1,8 @@
 # binance-mcp-go
 MCP Server of Binance services
+
+
+API Key
+7FQ855xaBzJEccSAwnoPuIkV1GNynPf8q74kaYYzVY2NcbXbXNMX6SYjiY4Tl7cy
+Secret Key
+7FnKaaZlTneY99MaI3TjHfbuLiOsuSTmu2QPnjFXzguo0FRe1Lh3m1Mdj6dACn7w
