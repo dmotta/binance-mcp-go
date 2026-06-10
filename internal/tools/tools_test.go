@@ -113,6 +113,20 @@ func TestCancelOrder_Success(t *testing.T) {
 	if m.lastCancelOrder.OrderID != 99 {
 		t.Errorf("expected orderID 99, got %d", m.lastCancelOrder.OrderID)
 	}
+	if m.lastCancelOrder.Market != "spot" {
+		t.Errorf("expected market spot (default), got %s", m.lastCancelOrder.Market)
+	}
+}
+
+func TestCancelOrder_Futures(t *testing.T) {
+	m := &mockPort{order: &port.Order{OrderID: 42, Symbol: "BTCUSDT", Status: "CANCELED"}}
+	res := callTool(t, m, "cancel_order", map[string]any{
+		"symbol": "BTCUSDT", "orderId": float64(42), "market": "futures",
+	})
+	assertOK(t, res)
+	if m.lastCancelOrder.Market != "futures" {
+		t.Errorf("expected market futures, got %s", m.lastCancelOrder.Market)
+	}
 }
 
 func TestCancelOrder_Error(t *testing.T) {
@@ -134,6 +148,18 @@ func TestGetOpenOrders_NoSymbol(t *testing.T) {
 	if m.lastGetOpenOrders.Symbol != "" {
 		t.Errorf("expected empty symbol, got %s", m.lastGetOpenOrders.Symbol)
 	}
+	if m.lastGetOpenOrders.Market != "spot" {
+		t.Errorf("expected market spot (default), got %s", m.lastGetOpenOrders.Market)
+	}
+}
+
+func TestGetOpenOrders_Futures(t *testing.T) {
+	m := &mockPort{orders: []port.Order{{OrderID: 7, Symbol: "BTCUSDT"}}}
+	res := callTool(t, m, "get_open_orders", map[string]any{"symbol": "BTCUSDT", "market": "futures"})
+	assertOK(t, res)
+	if m.lastGetOpenOrders.Market != "futures" {
+		t.Errorf("expected market futures, got %s", m.lastGetOpenOrders.Market)
+	}
 }
 
 func TestGetOpenOrders_Error(t *testing.T) {
@@ -146,6 +172,20 @@ func TestGetOrderStatus_Success(t *testing.T) {
 	m := &mockPort{order: &port.Order{OrderID: 5, Symbol: "ETHUSDT", Status: "FILLED"}}
 	res := callTool(t, m, "get_order_status", map[string]any{"symbol": "ETHUSDT", "orderId": float64(5)})
 	assertOK(t, res)
+	if m.lastGetOrderStatus.Market != "spot" {
+		t.Errorf("expected market spot (default), got %s", m.lastGetOrderStatus.Market)
+	}
+}
+
+func TestGetOrderStatus_Futures(t *testing.T) {
+	m := &mockPort{order: &port.Order{OrderID: 8, Symbol: "BTCUSDT", Status: "NEW"}}
+	res := callTool(t, m, "get_order_status", map[string]any{
+		"symbol": "BTCUSDT", "orderId": float64(8), "market": "futures",
+	})
+	assertOK(t, res)
+	if m.lastGetOrderStatus.Market != "futures" {
+		t.Errorf("expected market futures, got %s", m.lastGetOrderStatus.Market)
+	}
 }
 
 func TestGetOrderStatus_Error(t *testing.T) {
@@ -183,6 +223,20 @@ func TestCancelAllOrders_Success(t *testing.T) {
 	assertOK(t, res)
 	if m.lastCancelAllOrders.Symbol != "BTCUSDT" {
 		t.Errorf("expected BTCUSDT, got %s", m.lastCancelAllOrders.Symbol)
+	}
+	if m.lastCancelAllOrders.Market != "spot" {
+		t.Errorf("expected market spot (default), got %s", m.lastCancelAllOrders.Market)
+	}
+}
+
+func TestCancelAllOrders_Futures(t *testing.T) {
+	m := &mockPort{orders: []port.Order{{Symbol: "BTCUSDT", Status: "CANCELED"}}}
+	res := callTool(t, m, "cancel_all_orders", map[string]any{
+		"symbol": "BTCUSDT", "market": "futures",
+	})
+	assertOK(t, res)
+	if m.lastCancelAllOrders.Market != "futures" {
+		t.Errorf("expected market futures, got %s", m.lastCancelAllOrders.Market)
 	}
 }
 
@@ -245,9 +299,12 @@ func TestCreateStopLimitOrder_Error(t *testing.T) {
 func TestCreateTrailingStopOrder_Success(t *testing.T) {
 	m := &mockPort{spotOrderResult: &port.OrderResult{OrderID: 13}}
 	res := callTool(t, m, "create_trailing_stop_order", map[string]any{
-		"symbol": "BTCUSDT", "side": "SELL", "quantity": 0.1, "callbackRate": 1.0,
+		"symbol": "BTCUSDT", "side": "SELL", "quantity": 0.1, "callbackRate": 1.5,
 	})
 	assertOK(t, res)
+	if m.lastTrailingStop.CallbackRate != 1.5 {
+		t.Errorf("expected callbackRate 1.5, got %g", m.lastTrailingStop.CallbackRate)
+	}
 }
 
 func TestCreateTrailingStopOrder_Error(t *testing.T) {

@@ -25,15 +25,18 @@ type OrderResult struct {
 type CancelOrderParams struct {
 	Symbol  string
 	OrderID int64
+	Market  string // "spot" (default) or "futures"
 }
 
 type GetOpenOrdersParams struct {
 	Symbol string // optional
+	Market string // "spot" (default) or "futures"
 }
 
 type GetOrderStatusParams struct {
 	Symbol  string
 	OrderID int64
+	Market  string // "spot" (default) or "futures"
 }
 
 type GetMyTradesParams struct {
@@ -43,6 +46,7 @@ type GetMyTradesParams struct {
 
 type CancelAllOrdersParams struct {
 	Symbol string
+	Market string // "spot" (default) or "futures"
 }
 
 type Order struct {
@@ -85,7 +89,7 @@ type TrailingStopOrderParams struct {
 	Symbol       string
 	Side         string
 	Quantity     string
-	CallbackRate string
+	CallbackRate float64 // percentage, e.g. 1.5 for 1.5%
 }
 
 type OCOOrderParams struct {

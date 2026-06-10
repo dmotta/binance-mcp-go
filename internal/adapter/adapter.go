@@ -4,6 +4,7 @@ package adapter
 import (
 	"context"
 	"fmt"
+	"math"
 	"strconv"
 
 	binance "github.com/adshao/go-binance/v2"
@@ -49,6 +50,9 @@ func (a *BinanceAdapter) CreateSpotOrder(ctx context.Context, p port.CreateSpotO
 // ─── Order Management ────────────────────────────────────────────────────────
 
 func (a *BinanceAdapter) CancelOrder(ctx context.Context, p port.CancelOrderParams) (*port.Order, error) {
+	if p.Market == "futures" {
+		return a.cancelFuturesOrder(ctx, p)
+	}
 	res, err := a.spot.NewCancelOrderService().
 		Symbol(p.Symbol).
 		OrderID(p.OrderID).
@@ -67,7 +71,29 @@ func (a *BinanceAdapter) CancelOrder(ctx context.Context, p port.CancelOrderPara
 	}, nil
 }
 
+func (a *BinanceAdapter) cancelFuturesOrder(ctx context.Context, p port.CancelOrderParams) (*port.Order, error) {
+	res, err := a.futures.NewCancelOrderService().
+		Symbol(p.Symbol).
+		OrderID(p.OrderID).
+		Do(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &port.Order{
+		OrderID: res.OrderID,
+		Symbol:  res.Symbol,
+		Status:  string(res.Status),
+		Side:    string(res.Side),
+		Type:    string(res.Type),
+		Price:   res.Price,
+		Qty:     res.OrigQuantity,
+	}, nil
+}
+
 func (a *BinanceAdapter) GetOpenOrders(ctx context.Context, p port.GetOpenOrdersParams) ([]port.Order, error) {
+	if p.Market == "futures" {
+		return a.getFuturesOpenOrders(ctx, p)
+	}
 	svc := a.spot.NewListOpenOrdersService()
 	if p.Symbol != "" {
 		svc = svc.Symbol(p.Symbol)
@@ -91,8 +117,54 @@ func (a *BinanceAdapter) GetOpenOrders(ctx context.Context, p port.GetOpenOrders
 	return out, nil
 }
 
+func (a *BinanceAdapter) getFuturesOpenOrders(ctx context.Context, p port.GetOpenOrdersParams) ([]port.Order, error) {
+	svc := a.futures.NewListOpenOrdersService()
+	if p.Symbol != "" {
+		svc = svc.Symbol(p.Symbol)
+	}
+	res, err := svc.Do(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]port.Order, len(res))
+	for i, o := range res {
+		out[i] = port.Order{
+			OrderID: o.OrderID,
+			Symbol:  o.Symbol,
+			Status:  string(o.Status),
+			Side:    string(o.Side),
+			Type:    string(o.Type),
+			Price:   o.Price,
+			Qty:     o.OrigQuantity,
+		}
+	}
+	return out, nil
+}
+
 func (a *BinanceAdapter) GetOrderStatus(ctx context.Context, p port.GetOrderStatusParams) (*port.Order, error) {
+	if p.Market == "futures" {
+		return a.getFuturesOrderStatus(ctx, p)
+	}
 	res, err := a.spot.NewGetOrderService().
+		Symbol(p.Symbol).
+		OrderID(p.OrderID).
+		Do(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &port.Order{
+		OrderID: res.OrderID,
+		Symbol:  res.Symbol,
+		Status:  string(res.Status),
+		Side:    string(res.Side),
+		Type:    string(res.Type),
+		Price:   res.Price,
+		Qty:     res.OrigQuantity,
+	}, nil
+}
+
+func (a *BinanceAdapter) getFuturesOrderStatus(ctx context.Context, p port.GetOrderStatusParams) (*port.Order, error) {
+	res, err := a.futures.NewGetOrderService().
 		Symbol(p.Symbol).
 		OrderID(p.OrderID).
 		Do(ctx)
@@ -134,6 +206,9 @@ func (a *BinanceAdapter) GetMyTrades(ctx context.Context, p port.GetMyTradesPara
 }
 
 func (a *BinanceAdapter) CancelAllOrders(ctx context.Context, p port.CancelAllOrdersParams) ([]port.Order, error) {
+	if p.Market == "futures" {
+		return a.cancelAllFuturesOrders(ctx, p)
+	}
 	res, err := a.spot.NewCancelOpenOrdersService().Symbol(p.Symbol).Do(ctx)
 	if err != nil {
 		return nil, err
@@ -151,6 +226,15 @@ func (a *BinanceAdapter) CancelAllOrders(ctx context.Context, p port.CancelAllOr
 		}
 	}
 	return out, nil
+}
+
+func (a *BinanceAdapter) cancelAllFuturesOrders(ctx context.Context, p port.CancelAllOrdersParams) ([]port.Order, error) {
+	err := a.futures.NewCancelAllOpenOrdersService().Symbol(p.Symbol).Do(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// The futures API returns no per-order detail on bulk cancel.
+	return []port.Order{{Symbol: p.Symbol, Status: "CANCELED"}}, nil
 }
 
 // ─── Risk Control ─────────────────────────────────────────────────────────────
@@ -200,12 +284,19 @@ func (a *BinanceAdapter) CreateStopLimitOrder(ctx context.Context, p port.StopLi
 }
 
 func (a *BinanceAdapter) CreateTrailingStopOrder(ctx context.Context, p port.TrailingStopOrderParams) (*port.OrderResult, error) {
+	// callbackRate is a percentage (e.g. 1.5 for 1.5%); the Binance API
+	// expects trailingDelta as an integer in BIPS (1% = 100 BIPS). The
+	// exchange's TRAILING_DELTA filter caps at 2000 BIPS (20%).
+	if p.CallbackRate < 0.1 || p.CallbackRate > 20 {
+		return nil, fmt.Errorf("callbackRate must be between 0.1 and 20 (percent), got %g", p.CallbackRate)
+	}
+	bips := int(math.Round(p.CallbackRate * 100))
 	res, err := a.spot.NewCreateOrderService().
 		Symbol(p.Symbol).
 		Side(binance.SideType(p.Side)).
 		Type(binance.OrderTypeStopLoss).
 		Quantity(p.Quantity).
-		TrailingDelta(p.CallbackRate).
+		TrailingDelta(strconv.Itoa(bips)).
 		Do(ctx)
 	if err != nil {
 		return nil, err

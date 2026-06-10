@@ -88,14 +88,14 @@ func registerCreateStopLimitOrder(s *server.MCPServer, b port.BinancePort) {
 }
 
 func registerCreateTrailingStopOrder(s *server.MCPServer, b port.BinancePort) {
-	t := toolWithRawSchema("create_trailing_stop_order", "Create trailing stop order", `{
+	t := toolWithRawSchema("create_trailing_stop_order", "Create trailing stop order. callbackRate is a PERCENTAGE (1.5 = 1.5%), valid range 0.1-20; the server converts it to BIPS (trailingDelta) internally — do NOT pre-convert.", `{
 		"type":"object",
 		"required":["symbol","side","quantity","callbackRate"],
 		"properties":{
 			"symbol":       {"type":"string"},
 			"side":         {"type":"string","enum":["BUY","SELL"]},
 			"quantity":     {"type":"number"},
-			"callbackRate": {"type":"number"}
+			"callbackRate": {"type":"number","minimum":0.1,"maximum":20,"description":"Trailing distance as a percent of price (unit: percent, NOT BIPS). Example: 1.5 means 1.5% (sent to Binance as trailingDelta=150 BIPS). Valid range: 0.1 to 20."}
 		}
 	}`)
 	s.AddTool(t, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -103,7 +103,7 @@ func registerCreateTrailingStopOrder(s *server.MCPServer, b port.BinancePort) {
 			Symbol:       getString(req, "symbol"),
 			Side:         getString(req, "side"),
 			Quantity:     fmt.Sprintf("%g", getFloat(req, "quantity")),
-			CallbackRate: fmt.Sprintf("%g", getFloat(req, "callbackRate")),
+			CallbackRate: getFloat(req, "callbackRate"),
 		})
 		if err != nil {
 			return resultErr("create_trailing_stop_order failed: %v", err)

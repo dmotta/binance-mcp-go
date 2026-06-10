@@ -10,58 +10,78 @@ import (
 )
 
 func registerCancelOrder(s *server.MCPServer, b port.BinancePort) {
-	t := toolWithRawSchema("cancel_order", "Cancel a single order", `{
+	t := toolWithRawSchema("cancel_order", "Cancel a single order (spot or futures)", `{
 		"type":"object",
 		"required":["symbol","orderId"],
 		"properties":{
 			"symbol":  {"type":"string"},
-			"orderId": {"type":"integer"}
+			"orderId": {"type":"integer"},
+			"market":  {"type":"string","enum":["spot","futures"],"default":"spot"}
 		}
 	}`)
 	s.AddTool(t, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		market := getString(req, "market")
+		if market == "" {
+			market = "spot"
+		}
 		res, err := b.CancelOrder(ctx, port.CancelOrderParams{
 			Symbol:  getString(req, "symbol"),
 			OrderID: getInt64(req, "orderId"),
+			Market:  market,
 		})
 		if err != nil {
-			return resultErr("cancel_order failed: %v", err)
+			return resultErr("cancel_order failed (market=%s; if the order was created on the other market, retry with the matching 'market' parameter): %v", market, err)
 		}
 		return resultJSON(res)
 	})
 }
 
 func registerGetOpenOrders(s *server.MCPServer, b port.BinancePort) {
-	t := toolWithRawSchema("get_open_orders", "Get all open orders", `{
+	t := toolWithRawSchema("get_open_orders", "Get all open orders (spot or futures)", `{
 		"type":"object",
 		"properties":{
-			"symbol": {"type":"string"}
+			"symbol": {"type":"string"},
+			"market": {"type":"string","enum":["spot","futures"],"default":"spot"}
 		}
 	}`)
 	s.AddTool(t, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		res, err := b.GetOpenOrders(ctx, port.GetOpenOrdersParams{Symbol: getString(req, "symbol")})
+		market := getString(req, "market")
+		if market == "" {
+			market = "spot"
+		}
+		res, err := b.GetOpenOrders(ctx, port.GetOpenOrdersParams{
+			Symbol: getString(req, "symbol"),
+			Market: market,
+		})
 		if err != nil {
-			return resultErr("get_open_orders failed: %v", err)
+			return resultErr("get_open_orders failed (market=%s): %v", market, err)
 		}
 		return resultJSON(res)
 	})
 }
 
 func registerGetOrderStatus(s *server.MCPServer, b port.BinancePort) {
-	t := toolWithRawSchema("get_order_status", "Get order status", `{
+	t := toolWithRawSchema("get_order_status", "Get order status (spot or futures)", `{
 		"type":"object",
 		"required":["symbol","orderId"],
 		"properties":{
 			"symbol":  {"type":"string"},
-			"orderId": {"type":"integer"}
+			"orderId": {"type":"integer"},
+			"market":  {"type":"string","enum":["spot","futures"],"default":"spot"}
 		}
 	}`)
 	s.AddTool(t, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		market := getString(req, "market")
+		if market == "" {
+			market = "spot"
+		}
 		res, err := b.GetOrderStatus(ctx, port.GetOrderStatusParams{
 			Symbol:  getString(req, "symbol"),
 			OrderID: getInt64(req, "orderId"),
+			Market:  market,
 		})
 		if err != nil {
-			return resultErr("get_order_status failed: %v", err)
+			return resultErr("get_order_status failed (market=%s; if the order was created on the other market, retry with the matching 'market' parameter): %v", market, err)
 		}
 		return resultJSON(res)
 	})
@@ -89,17 +109,25 @@ func registerGetMyTrades(s *server.MCPServer, b port.BinancePort) {
 }
 
 func registerCancelAllOrders(s *server.MCPServer, b port.BinancePort) {
-	t := toolWithRawSchema("cancel_all_orders", "Cancel all open orders for a symbol", `{
+	t := toolWithRawSchema("cancel_all_orders", "Cancel all open orders for a symbol (spot or futures)", `{
 		"type":"object",
 		"required":["symbol"],
 		"properties":{
-			"symbol": {"type":"string"}
+			"symbol": {"type":"string"},
+			"market": {"type":"string","enum":["spot","futures"],"default":"spot"}
 		}
 	}`)
 	s.AddTool(t, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		res, err := b.CancelAllOrders(ctx, port.CancelAllOrdersParams{Symbol: getString(req, "symbol")})
+		market := getString(req, "market")
+		if market == "" {
+			market = "spot"
+		}
+		res, err := b.CancelAllOrders(ctx, port.CancelAllOrdersParams{
+			Symbol: getString(req, "symbol"),
+			Market: market,
+		})
 		if err != nil {
-			return resultErr("cancel_all_orders failed: %v", err)
+			return resultErr("cancel_all_orders failed (market=%s): %v", market, err)
 		}
 		return resultJSON(res)
 	})

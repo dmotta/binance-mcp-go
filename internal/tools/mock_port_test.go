@@ -65,6 +65,7 @@ type mockPort struct {
 	lastGetOrderStatus      *port.GetOrderStatusParams
 	lastGetMyTrades         *port.GetMyTradesParams
 	lastCancelAllOrders     *port.CancelAllOrdersParams
+	lastTrailingStop        *port.TrailingStopOrderParams
 	lastContractOrder       *port.ContractOrderParams
 	lastClosePositionSymbol string
 	lastSetLeverage         *port.SetLeverageParams
@@ -106,6 +107,7 @@ func (m *mockPort) CreateStopLimitOrder(ctx context.Context, p port.StopLimitOrd
 	return m.spotOrderResult, m.errStopLimit
 }
 func (m *mockPort) CreateTrailingStopOrder(ctx context.Context, p port.TrailingStopOrderParams) (*port.OrderResult, error) {
+	m.lastTrailingStop = &p
 	return m.spotOrderResult, m.errTrailingStop
 }
 func (m *mockPort) CreateOCOOrder(ctx context.Context, p port.OCOOrderParams) (*port.OCOResult, error) {
