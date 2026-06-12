@@ -15,34 +15,40 @@ El proyecto está diseñado bajo los principios de la Arquitectura Hexagonal par
 
 ```mermaid
 graph TD
-    subgraph Cliente MCP
-        LLM[Claude / LLM Engine] -->|Invoca herramienta| MCPServer[MCP Server stdio]
+    subgraph Cliente_MCP [Entorno del Cliente MCP]
+        LLM[Claude / LLM Engine] -->|Invoca herramienta mediante JSON-RPC| MCPServer[Tu App: MCP Server stdio/SSE]
     end
 
-    subgraph Capa Interna (Módulos Go)
-        MCPServer -->|Mapea JSON-RPC| Tools[Módulo: internal/tools]
-        Tools -->|Usa interfaces| Port[Puerto: internal/port.BinancePort]
+    subgraph Capa_Interna [Capa Interna: Arquitectura Hexagonal]
+        MCPServer -->|Enruta a| Tools[Módulo: internal/tools]
+        Tools -->|Llama a través de| Port[Puerto: internal/port.BinancePort]
+        
+        %% Corrección: El adaptador implementa el puerto (La flecha apunta al puerto)
         Adapter[Adaptador: internal/adapter] -.->|Implementa| Port
     end
 
-    subgraph Middleware HTTP & Clientes SDK
-        Adapter -->|Configura HTTP Client| Httpmw[Middleware Chain: internal/httpmw]
-        Httpmw -->|OTel / CB / Retry / RateLimit| HttpClient[http.Client]
-        HttpClient -->|Llamadas API| BinanceSDK[go-binance SDK Client]
+    subgraph Middleware_HTTP [Capa de Infraestructura / HTTP]
+        Adapter -->|Configura / Inyecta| HttpClient[http.Client]
+        Httpmw[Middleware Chain: internal/httpmw] -->|Envuelve con OTel / CB / RateLimit| HttpClient
+        HttpClient -->|Soporta a| BinanceSDK[go-binance SDK Client]
     end
 
-    subgraph API Externa
-        BinanceSDK -->|Spot API| SpotEnd[Binance Spot Endpoint]
-        BinanceSDK -->|Futures API| FutEnd[Binance Futures Endpoint]
-        BinanceSDK -->|Options API| OptEnd[Binance Options Endpoint]
+    subgraph API_Externa [API Externa]
+        BinanceSDK -->|REST / WebSocket| SpotEnd[Binance Spot Endpoint]
+        BinanceSDK -->|REST / WebSocket| FutEnd[Binance Futures Endpoint]
+        BinanceSDK -->|REST / WebSocket| OptEnd[Binance Options Endpoint]
     end
 
+    %% Estilos visuales
     classDef core fill:#e1f5fe,stroke:#01579b,stroke-width:2px;
     classDef adapter fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px;
     classDef client fill:#fff3e0,stroke:#e65100,stroke-width:2px;
+    classDef mcp fill:#f3e5f5,stroke:#4a148c,stroke-width:2px;
+    
     class Port core;
     class Adapter adapter;
-    class Httpmw client;
+    class Httpmw,HttpClient,BinanceSDK client;
+    class MCPServer mcp;
 ```
 
 Para una explicación exhaustiva de cada línea de código y patrón utilizado, consulta la [Documentación Detallada de Arquitectura](file:///Users/dmotta/Documents/ws-github-dmotta/binance-mcp-go/docs/architecture.md).
