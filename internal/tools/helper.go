@@ -52,6 +52,12 @@ func getFloat(req mcp.CallToolRequest, key string) float64 {
 	return 0
 }
 
+func getBool(req mcp.CallToolRequest, key string) bool {
+	args := req.GetArguments()
+	v, ok := args[key].(bool)
+	return ok && v
+}
+
 func getInt64(req mcp.CallToolRequest, key string) int64 {
 	args := req.GetArguments()
 	v, ok := args[key]

@@ -26,6 +26,7 @@ type mockPort struct {
 	optionSymbol       *port.OptionSymbol
 	futuresPositions   []port.FuturesPosition
 	balances           []port.Balance
+	futuresBalances    []port.FuturesBalance
 	serverInfo         *port.ServerInfo
 
 	// errors
@@ -52,6 +53,7 @@ type mockPort struct {
 	errClosePosition    error
 	errFuturesPositions error
 	errBalance          error
+	errFuturesBalance   error
 	errPositions        error
 	errSetLeverage      error
 	errSetMarginMode    error
@@ -68,6 +70,8 @@ type mockPort struct {
 	lastTrailingStop        *port.TrailingStopOrderParams
 	lastContractOrder       *port.ContractOrderParams
 	lastClosePositionSymbol string
+	lastFuturesPosSymbol    string
+	lastFuturesBalAsset     string
 	lastSetLeverage         *port.SetLeverageParams
 	lastSetMarginMode       *port.SetMarginModeParams
 	lastTransferFunds       *port.TransferFundsParams
@@ -145,11 +149,16 @@ func (m *mockPort) ClosePosition(ctx context.Context, symbol string) (*port.Orde
 	m.lastClosePositionSymbol = symbol
 	return m.spotOrderResult, m.errClosePosition
 }
-func (m *mockPort) GetFuturesPositions(ctx context.Context) ([]port.FuturesPosition, error) {
+func (m *mockPort) GetFuturesPositions(ctx context.Context, symbol string) ([]port.FuturesPosition, error) {
+	m.lastFuturesPosSymbol = symbol
 	return m.futuresPositions, m.errFuturesPositions
 }
 func (m *mockPort) GetBalance(ctx context.Context, asset string) ([]port.Balance, error) {
 	return m.balances, m.errBalance
+}
+func (m *mockPort) GetFuturesBalance(ctx context.Context, asset string) ([]port.FuturesBalance, error) {
+	m.lastFuturesBalAsset = asset
+	return m.futuresBalances, m.errFuturesBalance
 }
 func (m *mockPort) GetPositions(ctx context.Context) ([]port.FuturesPosition, error) {
 	return m.futuresPositions, m.errPositions

@@ -88,21 +88,27 @@ func registerGetOrderStatus(s *server.MCPServer, b port.BinancePort) {
 }
 
 func registerGetMyTrades(s *server.MCPServer, b port.BinancePort) {
-	t := toolWithRawSchema("get_my_trades", "Get account trade history", `{
+	t := toolWithRawSchema("get_my_trades", "Get account trade history (spot or futures)", `{
 		"type":"object",
 		"required":["symbol"],
 		"properties":{
 			"symbol": {"type":"string"},
-			"limit":  {"type":"integer","default":100}
+			"limit":  {"type":"integer","default":100},
+			"market": {"type":"string","enum":["spot","futures"],"default":"spot"}
 		}
 	}`)
 	s.AddTool(t, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		market := getString(req, "market")
+		if market == "" {
+			market = "spot"
+		}
 		res, err := b.GetMyTrades(ctx, port.GetMyTradesParams{
 			Symbol: getString(req, "symbol"),
 			Limit:  getInt(req, "limit", 100),
+			Market: market,
 		})
 		if err != nil {
-			return resultErr("get_my_trades failed: %v", err)
+			return resultErr("get_my_trades failed (market=%s): %v", market, err)
 		}
 		return resultJSON(res)
 	})

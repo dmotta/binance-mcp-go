@@ -26,6 +26,22 @@ func registerGetBalance(s *server.MCPServer, b port.BinancePort) {
 	})
 }
 
+func registerGetFuturesBalance(s *server.MCPServer, b port.BinancePort) {
+	t := toolWithRawSchema("get_futures_balance", "Get USDⓈ-M futures wallet balances", `{
+		"type":"object",
+		"properties":{
+			"asset": {"type":"string","description":"Optional; restrict the result to one asset, e.g. USDT"}
+		}
+	}`)
+	s.AddTool(t, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		res, err := b.GetFuturesBalance(ctx, getString(req, "asset"))
+		if err != nil {
+			return resultErr("get_futures_balance failed: %v", err)
+		}
+		return resultJSON(res)
+	})
+}
+
 func registerGetPositions(s *server.MCPServer, b port.BinancePort) {
 	t := toolWithRawSchema("get_positions", "Get open futures positions for the account", `{"type":"object","properties":{}}`)
 	s.AddTool(t, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {

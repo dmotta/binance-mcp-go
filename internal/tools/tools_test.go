@@ -211,6 +211,26 @@ func TestGetMyTrades_DefaultLimit(t *testing.T) {
 	}
 }
 
+func TestGetMyTrades_DefaultMarketIsSpot(t *testing.T) {
+	m := &mockPort{trades: nil}
+	callTool(t, m, "get_my_trades", map[string]any{"symbol": "BTCUSDT"})
+	if m.lastGetMyTrades.Market != "spot" {
+		t.Errorf("expected market spot (default), got %s", m.lastGetMyTrades.Market)
+	}
+}
+
+func TestGetMyTrades_Futures(t *testing.T) {
+	m := &mockPort{trades: []port.Trade{{ID: 7, Symbol: "BTCUSDT", Side: "SELL", RealizedPnl: "-0.91"}}}
+	res := callTool(t, m, "get_my_trades", map[string]any{"symbol": "BTCUSDT", "market": "futures"})
+	assertOK(t, res)
+	if m.lastGetMyTrades.Market != "futures" {
+		t.Errorf("expected market futures, got %s", m.lastGetMyTrades.Market)
+	}
+	if !strings.Contains(firstText(res), "realizedPnl") {
+		t.Error("expected realizedPnl in futures trade response")
+	}
+}
+
 func TestGetMyTrades_Error(t *testing.T) {
 	m := &mockPort{errMyTrades: sentinelErr}
 	res := callTool(t, m, "get_my_trades", map[string]any{"symbol": "BTCUSDT"})
@@ -471,6 +491,42 @@ func TestCreateContractOrder_WithPrice(t *testing.T) {
 	}
 }
 
+func TestCreateContractOrder_StopMarket(t *testing.T) {
+	m := &mockPort{spotOrderResult: &port.OrderResult{OrderID: 22, Symbol: "BTCUSDT", Status: "NEW"}}
+	res := callTool(t, m, "create_contract_order", map[string]any{
+		"symbol": "BTCUSDT", "side": "SELL", "type": "STOP_MARKET",
+		"quantity": 0.01, "stopPrice": 45000.0, "reduceOnly": true,
+	})
+	assertOK(t, res)
+	if m.lastContractOrder.StopPrice != "45000" {
+		t.Errorf("expected stopPrice 45000, got %s", m.lastContractOrder.StopPrice)
+	}
+	if !m.lastContractOrder.ReduceOnly {
+		t.Error("expected reduceOnly true")
+	}
+	if m.lastContractOrder.ClosePosition {
+		t.Error("expected closePosition false")
+	}
+}
+
+func TestCreateContractOrder_TakeProfitMarketClosePosition(t *testing.T) {
+	m := &mockPort{spotOrderResult: &port.OrderResult{OrderID: 23, Symbol: "BTCUSDT", Status: "NEW"}}
+	res := callTool(t, m, "create_contract_order", map[string]any{
+		"symbol": "BTCUSDT", "side": "SELL", "type": "TAKE_PROFIT_MARKET",
+		"stopPrice": 60000.0, "closePosition": true,
+	})
+	assertOK(t, res)
+	if !m.lastContractOrder.ClosePosition {
+		t.Error("expected closePosition true")
+	}
+	if m.lastContractOrder.Quantity != "" {
+		t.Errorf("expected no quantity with closePosition, got %s", m.lastContractOrder.Quantity)
+	}
+	if m.lastContractOrder.StopPrice != "60000" {
+		t.Errorf("expected stopPrice 60000, got %s", m.lastContractOrder.StopPrice)
+	}
+}
+
 func TestCreateContractOrder_Error(t *testing.T) {
 	m := &mockPort{errContractOrder: sentinelErr}
 	res := callTool(t, m, "create_contract_order", map[string]any{
@@ -498,6 +554,18 @@ func TestGetFuturesPositions_Success(t *testing.T) {
 	m := &mockPort{futuresPositions: []port.FuturesPosition{{Symbol: "BTCUSDT", PositionAmt: "0.1"}}}
 	res := callTool(t, m, "get_futures_positions", map[string]any{})
 	assertOK(t, res)
+	if m.lastFuturesPosSymbol != "" {
+		t.Errorf("expected empty symbol filter, got %s", m.lastFuturesPosSymbol)
+	}
+}
+
+func TestGetFuturesPositions_SymbolFilter(t *testing.T) {
+	m := &mockPort{futuresPositions: []port.FuturesPosition{{Symbol: "ETHUSDT", PositionAmt: "2"}}}
+	res := callTool(t, m, "get_futures_positions", map[string]any{"symbol": "ETHUSDT"})
+	assertOK(t, res)
+	if m.lastFuturesPosSymbol != "ETHUSDT" {
+		t.Errorf("expected symbol ETHUSDT, got %s", m.lastFuturesPosSymbol)
+	}
 }
 
 func TestGetFuturesPositions_Error(t *testing.T) {
@@ -527,6 +595,33 @@ func TestGetBalance_Error(t *testing.T) {
 	m := &mockPort{errBalance: sentinelErr}
 	res := callTool(t, m, "get_balance", map[string]any{})
 	assertError(t, res, "get_balance failed")
+}
+
+func TestGetFuturesBalance_Success(t *testing.T) {
+	m := &mockPort{futuresBalances: []port.FuturesBalance{{Asset: "USDT", Balance: "100.5", AvailableBalance: "95.0"}}}
+	res := callTool(t, m, "get_futures_balance", map[string]any{})
+	assertOK(t, res)
+	if !strings.Contains(firstText(res), "USDT") {
+		t.Error("expected USDT in futures balance response")
+	}
+	if m.lastFuturesBalAsset != "" {
+		t.Errorf("expected empty asset filter, got %s", m.lastFuturesBalAsset)
+	}
+}
+
+func TestGetFuturesBalance_FilteredByAsset(t *testing.T) {
+	m := &mockPort{futuresBalances: []port.FuturesBalance{{Asset: "USDT", Balance: "100.5"}}}
+	res := callTool(t, m, "get_futures_balance", map[string]any{"asset": "USDT"})
+	assertOK(t, res)
+	if m.lastFuturesBalAsset != "USDT" {
+		t.Errorf("expected asset USDT, got %s", m.lastFuturesBalAsset)
+	}
+}
+
+func TestGetFuturesBalance_Error(t *testing.T) {
+	m := &mockPort{errFuturesBalance: sentinelErr}
+	res := callTool(t, m, "get_futures_balance", map[string]any{})
+	assertError(t, res, "get_futures_balance failed")
 }
 
 func TestGetPositions_Success(t *testing.T) {

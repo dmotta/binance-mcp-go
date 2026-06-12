@@ -32,6 +32,7 @@ func RegisterAll(s *server.MCPServer, b port.BinancePort) {
 	registerClosePosition(s, b)
 	registerGetFuturesPositions(s, b)
 	registerGetBalance(s, b)
+	registerGetFuturesBalance(s, b)
 	registerGetPositions(s, b)
 	registerSetLeverage(s, b)
 	registerSetMarginMode(s, b)

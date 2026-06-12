@@ -13,24 +13,34 @@ import (
 func registerCreateContractOrder(s *server.MCPServer, b port.BinancePort) {
 	t := toolWithRawSchema("create_contract_order", "Create a futures/contract order", `{
 		"type":"object",
-		"required":["symbol","side","type","quantity"],
+		"required":["symbol","side","type"],
 		"properties":{
-			"symbol":   {"type":"string"},
-			"side":     {"type":"string","enum":["BUY","SELL"]},
-			"type":     {"type":"string","enum":["MARKET","LIMIT","STOP","TAKE_PROFIT"]},
-			"quantity": {"type":"number"},
-			"price":    {"type":"number"}
+			"symbol":        {"type":"string"},
+			"side":          {"type":"string","enum":["BUY","SELL"]},
+			"type":          {"type":"string","enum":["MARKET","LIMIT","STOP_MARKET","TAKE_PROFIT_MARKET"]},
+			"quantity":      {"type":"number","description":"Required unless closePosition is true"},
+			"price":         {"type":"number","description":"Required for LIMIT orders"},
+			"stopPrice":     {"type":"number","description":"Trigger price; required for STOP_MARKET and TAKE_PROFIT_MARKET"},
+			"reduceOnly":    {"type":"boolean","description":"Only reduce an existing position, never open or flip one"},
+			"closePosition": {"type":"boolean","description":"Close the entire position when triggered (STOP_MARKET/TAKE_PROFIT_MARKET only); omit quantity and reduceOnly"}
 		}
 	}`)
 	s.AddTool(t, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		p := port.ContractOrderParams{
-			Symbol:   getString(req, "symbol"),
-			Side:     getString(req, "side"),
-			Type:     getString(req, "type"),
-			Quantity: fmt.Sprintf("%g", getFloat(req, "quantity")),
+			Symbol:        getString(req, "symbol"),
+			Side:          getString(req, "side"),
+			Type:          getString(req, "type"),
+			ReduceOnly:    getBool(req, "reduceOnly"),
+			ClosePosition: getBool(req, "closePosition"),
+		}
+		if qty := getFloat(req, "quantity"); qty > 0 {
+			p.Quantity = fmt.Sprintf("%g", qty)
 		}
 		if price := getFloat(req, "price"); price > 0 {
 			p.Price = fmt.Sprintf("%g", price)
+		}
+		if stopPrice := getFloat(req, "stopPrice"); stopPrice > 0 {
+			p.StopPrice = fmt.Sprintf("%g", stopPrice)
 		}
 		res, err := b.CreateContractOrder(ctx, p)
 		if err != nil {
@@ -58,9 +68,14 @@ func registerClosePosition(s *server.MCPServer, b port.BinancePort) {
 }
 
 func registerGetFuturesPositions(s *server.MCPServer, b port.BinancePort) {
-	t := toolWithRawSchema("get_futures_positions", "Get all open futures positions", `{"type":"object","properties":{}}`)
+	t := toolWithRawSchema("get_futures_positions", "Get open futures positions, optionally filtered by symbol", `{
+		"type":"object",
+		"properties":{
+			"symbol": {"type":"string","description":"Optional; restrict the result to one symbol"}
+		}
+	}`)
 	s.AddTool(t, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		res, err := b.GetFuturesPositions(ctx)
+		res, err := b.GetFuturesPositions(ctx, getString(req, "symbol"))
 		if err != nil {
 			return resultErr("get_futures_positions failed: %v", err)
 		}

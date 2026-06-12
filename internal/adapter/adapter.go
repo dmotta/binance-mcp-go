@@ -183,6 +183,9 @@ func (a *BinanceAdapter) getFuturesOrderStatus(ctx context.Context, p port.GetOr
 }
 
 func (a *BinanceAdapter) GetMyTrades(ctx context.Context, p port.GetMyTradesParams) ([]port.Trade, error) {
+	if p.Market == "futures" {
+		return a.getFuturesMyTrades(ctx, p)
+	}
 	svc := a.spot.NewListTradesService().Symbol(p.Symbol)
 	if p.Limit > 0 {
 		svc = svc.Limit(p.Limit)
@@ -200,6 +203,31 @@ func (a *BinanceAdapter) GetMyTrades(ctx context.Context, p port.GetMyTradesPara
 			Qty:     t.Quantity,
 			IsBuyer: t.IsBuyer,
 			Time:    t.Time,
+		}
+	}
+	return out, nil
+}
+
+func (a *BinanceAdapter) getFuturesMyTrades(ctx context.Context, p port.GetMyTradesParams) ([]port.Trade, error) {
+	svc := a.futures.NewListAccountTradeService().Symbol(p.Symbol)
+	if p.Limit > 0 {
+		svc = svc.Limit(p.Limit)
+	}
+	res, err := svc.Do(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]port.Trade, len(res))
+	for i, t := range res {
+		out[i] = port.Trade{
+			ID:          t.ID,
+			Symbol:      t.Symbol,
+			Price:       t.Price,
+			Qty:         t.Quantity,
+			IsBuyer:     t.Buyer,
+			Time:        t.Time,
+			Side:        string(t.Side),
+			RealizedPnl: t.RealizedPnl,
 		}
 	}
 	return out, nil
@@ -515,13 +543,38 @@ func (a *BinanceAdapter) GetOptionInfo(ctx context.Context, symbol string) (*por
 // ─── Futures ─────────────────────────────────────────────────────────────────
 
 func (a *BinanceAdapter) CreateContractOrder(ctx context.Context, p port.ContractOrderParams) (*port.OrderResult, error) {
+	// Futures trigger orders must use the *_MARKET types on /fapi/v1/order;
+	// plain STOP/TAKE_PROFIT are rejected by Binance with -4120 (Algo Order
+	// API required), so they are not offered here.
+	isTrigger := p.Type == "STOP_MARKET" || p.Type == "TAKE_PROFIT_MARKET"
+	if isTrigger && p.StopPrice == "" {
+		return nil, fmt.Errorf("stopPrice is required for %s orders", p.Type)
+	}
+	if p.ClosePosition && !isTrigger {
+		return nil, fmt.Errorf("closePosition is only valid for STOP_MARKET and TAKE_PROFIT_MARKET orders")
+	}
+	if !p.ClosePosition && p.Quantity == "" {
+		return nil, fmt.Errorf("quantity is required unless closePosition is true")
+	}
 	svc := a.futures.NewCreateOrderService().
 		Symbol(p.Symbol).
 		Side(futures.SideType(p.Side)).
-		Type(futures.OrderType(p.Type)).
-		Quantity(p.Quantity)
+		Type(futures.OrderType(p.Type))
+	if p.ClosePosition {
+		// closePosition closes the whole position at trigger; Binance rejects
+		// quantity and reduceOnly alongside it.
+		svc = svc.ClosePosition(true)
+	} else {
+		svc = svc.Quantity(p.Quantity)
+		if p.ReduceOnly {
+			svc = svc.ReduceOnly(true)
+		}
+	}
 	if p.Price != "" {
 		svc = svc.Price(p.Price)
+	}
+	if p.StopPrice != "" {
+		svc = svc.StopPrice(p.StopPrice)
 	}
 	if p.Type == "LIMIT" {
 		svc = svc.TimeInForce(futures.TimeInForceTypeGTC)
@@ -591,8 +644,12 @@ func (a *BinanceAdapter) ClosePosition(ctx context.Context, symbol string) (*por
 	return &port.OrderResult{OrderID: res.OrderID, Symbol: res.Symbol, Status: string(res.Status)}, nil
 }
 
-func (a *BinanceAdapter) GetFuturesPositions(ctx context.Context) ([]port.FuturesPosition, error) {
-	res, err := a.futures.NewGetPositionRiskService().Do(ctx)
+func (a *BinanceAdapter) GetFuturesPositions(ctx context.Context, symbol string) ([]port.FuturesPosition, error) {
+	svc := a.futures.NewGetPositionRiskService()
+	if symbol != "" {
+		svc = svc.Symbol(symbol)
+	}
+	res, err := svc.Do(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -631,7 +688,37 @@ func (a *BinanceAdapter) GetBalance(ctx context.Context, asset string) ([]port.B
 }
 
 func (a *BinanceAdapter) GetPositions(ctx context.Context) ([]port.FuturesPosition, error) {
-	return a.GetFuturesPositions(ctx)
+	return a.GetFuturesPositions(ctx, "")
+}
+
+func (a *BinanceAdapter) GetFuturesBalance(ctx context.Context, asset string) ([]port.FuturesBalance, error) {
+	res, err := a.futures.NewGetBalanceService().Do(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []port.FuturesBalance
+	for _, b := range res {
+		if asset != "" && b.Asset != asset {
+			continue
+		}
+		// With no asset filter, mirror the spot tool and omit empty wallets.
+		if asset == "" && isZero(b.Balance) && isZero(b.CrossUnPnl) {
+			continue
+		}
+		out = append(out, port.FuturesBalance{
+			Asset:            b.Asset,
+			Balance:          b.Balance,
+			CrossUnPnl:       b.CrossUnPnl,
+			AvailableBalance: b.AvailableBalance,
+		})
+	}
+	return out, nil
+}
+
+// isZero reports whether a Binance decimal string is numerically zero.
+func isZero(s string) bool {
+	f, err := strconv.ParseFloat(s, 64)
+	return err == nil && f == 0
 }
 
 func (a *BinanceAdapter) SetLeverage(ctx context.Context, p port.SetLeverageParams) error {

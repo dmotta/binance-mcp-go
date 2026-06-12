@@ -42,6 +42,7 @@ type GetOrderStatusParams struct {
 type GetMyTradesParams struct {
 	Symbol string
 	Limit  int
+	Market string // "spot" (default) or "futures"
 }
 
 type CancelAllOrdersParams struct {
@@ -60,12 +61,14 @@ type Order struct {
 }
 
 type Trade struct {
-	ID       int64  `json:"id"`
-	Symbol   string `json:"symbol"`
-	Price    string `json:"price"`
-	Qty      string `json:"qty"`
-	IsBuyer  bool   `json:"isBuyer"`
-	Time     int64  `json:"time"`
+	ID          int64  `json:"id"`
+	Symbol      string `json:"symbol"`
+	Price       string `json:"price"`
+	Qty         string `json:"qty"`
+	IsBuyer     bool   `json:"isBuyer"`
+	Time        int64  `json:"time"`
+	Side        string `json:"side,omitempty"`        // futures only
+	RealizedPnl string `json:"realizedPnl,omitempty"` // futures only
 }
 
 // --- Risk Control ---
@@ -173,11 +176,14 @@ type OptionPosition struct {
 // --- Futures ---
 
 type ContractOrderParams struct {
-	Symbol   string
-	Side     string
-	Type     string
-	Quantity string
-	Price    string
+	Symbol        string
+	Side          string
+	Type          string
+	Quantity      string // empty allowed only with ClosePosition
+	Price         string
+	StopPrice     string // required for STOP_MARKET / TAKE_PROFIT_MARKET
+	ReduceOnly    bool
+	ClosePosition bool // STOP_MARKET / TAKE_PROFIT_MARKET only; excludes Quantity and ReduceOnly
 }
 
 type FuturesPosition struct {
@@ -196,6 +202,13 @@ type Balance struct {
 	Asset  string `json:"asset"`
 	Free   string `json:"free"`
 	Locked string `json:"locked"`
+}
+
+type FuturesBalance struct {
+	Asset            string `json:"asset"`
+	Balance          string `json:"balance"`
+	CrossUnPnl       string `json:"crossUnPnl"`
+	AvailableBalance string `json:"availableBalance"`
 }
 
 type SetLeverageParams struct {
@@ -257,10 +270,11 @@ type BinancePort interface {
 	// Futures
 	CreateContractOrder(ctx context.Context, p ContractOrderParams) (*OrderResult, error)
 	ClosePosition(ctx context.Context, symbol string) (*OrderResult, error)
-	GetFuturesPositions(ctx context.Context) ([]FuturesPosition, error)
+	GetFuturesPositions(ctx context.Context, symbol string) ([]FuturesPosition, error)
 
 	// Account
 	GetBalance(ctx context.Context, asset string) ([]Balance, error)
+	GetFuturesBalance(ctx context.Context, asset string) ([]FuturesBalance, error)
 	GetPositions(ctx context.Context) ([]FuturesPosition, error)
 	SetLeverage(ctx context.Context, p SetLeverageParams) error
 	SetMarginMode(ctx context.Context, p SetMarginModeParams) error
