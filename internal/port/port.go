@@ -15,7 +15,8 @@ type CreateSpotOrderParams struct {
 }
 
 type OrderResult struct {
-	OrderID int64  `json:"orderId"`
+	OrderID int64  `json:"orderId,omitempty"`
+	AlgoID  int64  `json:"algoId,omitempty"` // set instead of OrderID for futures conditional (algo) orders
 	Symbol  string `json:"symbol"`
 	Status  string `json:"status"`
 }
@@ -186,6 +187,27 @@ type ContractOrderParams struct {
 	ClosePosition bool // STOP_MARKET / TAKE_PROFIT_MARKET only; excludes Quantity and ReduceOnly
 }
 
+// AlgoOrder is an open futures conditional order placed via the Algo Order API
+// (/fapi/v1/algoOrder). These live in a separate namespace from regular orders:
+// they are listed and canceled by AlgoID, not OrderID.
+type AlgoOrder struct {
+	AlgoID        int64  `json:"algoId"`
+	Symbol        string `json:"symbol"`
+	Side          string `json:"side"`
+	Type          string `json:"type"`
+	Status        string `json:"status"`
+	TriggerPrice  string `json:"triggerPrice"`
+	Quantity      string `json:"quantity"`
+	ReduceOnly    bool   `json:"reduceOnly"`
+	ClosePosition bool   `json:"closePosition"`
+}
+
+type AlgoCancelResult struct {
+	AlgoID  int64  `json:"algoId"`
+	Code    string `json:"code,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
 type FuturesPosition struct {
 	Symbol           string `json:"symbol"`
 	PositionAmt      string `json:"positionAmt"`
@@ -271,6 +293,8 @@ type BinancePort interface {
 	CreateContractOrder(ctx context.Context, p ContractOrderParams) (*OrderResult, error)
 	ClosePosition(ctx context.Context, symbol string) (*OrderResult, error)
 	GetFuturesPositions(ctx context.Context, symbol string) ([]FuturesPosition, error)
+	GetOpenAlgoOrders(ctx context.Context, symbol string) ([]AlgoOrder, error)
+	CancelAlgoOrder(ctx context.Context, algoID int64) (*AlgoCancelResult, error)
 
 	// Account
 	GetBalance(ctx context.Context, asset string) ([]Balance, error)

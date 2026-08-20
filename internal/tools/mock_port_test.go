@@ -25,6 +25,8 @@ type mockPort struct {
 	optionPositions    []port.OptionPosition
 	optionSymbol       *port.OptionSymbol
 	futuresPositions   []port.FuturesPosition
+	algoOrders         []port.AlgoOrder
+	algoCancelResult   *port.AlgoCancelResult
 	balances           []port.Balance
 	futuresBalances    []port.FuturesBalance
 	serverInfo         *port.ServerInfo
@@ -52,6 +54,8 @@ type mockPort struct {
 	errContractOrder    error
 	errClosePosition    error
 	errFuturesPositions error
+	errAlgoOrders       error
+	errCancelAlgoOrder  error
 	errBalance          error
 	errFuturesBalance   error
 	errPositions        error
@@ -71,6 +75,8 @@ type mockPort struct {
 	lastContractOrder       *port.ContractOrderParams
 	lastClosePositionSymbol string
 	lastFuturesPosSymbol    string
+	lastAlgoOrdersSymbol    string
+	lastCancelAlgoID        int64
 	lastFuturesBalAsset     string
 	lastSetLeverage         *port.SetLeverageParams
 	lastSetMarginMode       *port.SetMarginModeParams
@@ -152,6 +158,14 @@ func (m *mockPort) ClosePosition(ctx context.Context, symbol string) (*port.Orde
 func (m *mockPort) GetFuturesPositions(ctx context.Context, symbol string) ([]port.FuturesPosition, error) {
 	m.lastFuturesPosSymbol = symbol
 	return m.futuresPositions, m.errFuturesPositions
+}
+func (m *mockPort) GetOpenAlgoOrders(ctx context.Context, symbol string) ([]port.AlgoOrder, error) {
+	m.lastAlgoOrdersSymbol = symbol
+	return m.algoOrders, m.errAlgoOrders
+}
+func (m *mockPort) CancelAlgoOrder(ctx context.Context, algoID int64) (*port.AlgoCancelResult, error) {
+	m.lastCancelAlgoID = algoID
+	return m.algoCancelResult, m.errCancelAlgoOrder
 }
 func (m *mockPort) GetBalance(ctx context.Context, asset string) ([]port.Balance, error) {
 	return m.balances, m.errBalance

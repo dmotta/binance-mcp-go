@@ -543,23 +543,55 @@ func (a *BinanceAdapter) GetOptionInfo(ctx context.Context, symbol string) (*por
 // ─── Futures ─────────────────────────────────────────────────────────────────
 
 func (a *BinanceAdapter) CreateContractOrder(ctx context.Context, p port.ContractOrderParams) (*port.OrderResult, error) {
-	// Futures trigger orders must use the *_MARKET types on /fapi/v1/order;
-	// plain STOP/TAKE_PROFIT are rejected by Binance with -4120 (Algo Order
-	// API required), so they are not offered here.
+	// Binance rejects conditional types on /fapi/v1/order with -4120: they
+	// moved to the Algo Order API (/fapi/v1/algoOrder, algoType=CONDITIONAL).
 	isTrigger := p.Type == "STOP_MARKET" || p.Type == "TAKE_PROFIT_MARKET"
-	if isTrigger && p.StopPrice == "" {
-		return nil, fmt.Errorf("stopPrice is required for %s orders", p.Type)
-	}
 	if p.ClosePosition && !isTrigger {
 		return nil, fmt.Errorf("closePosition is only valid for STOP_MARKET and TAKE_PROFIT_MARKET orders")
 	}
-	if !p.ClosePosition && p.Quantity == "" {
+	if isTrigger {
+		return a.createFuturesAlgoOrder(ctx, p)
+	}
+	if p.Quantity == "" {
 		return nil, fmt.Errorf("quantity is required unless closePosition is true")
 	}
 	svc := a.futures.NewCreateOrderService().
 		Symbol(p.Symbol).
 		Side(futures.SideType(p.Side)).
-		Type(futures.OrderType(p.Type))
+		Type(futures.OrderType(p.Type)).
+		Quantity(p.Quantity)
+	if p.ReduceOnly {
+		svc = svc.ReduceOnly(true)
+	}
+	if p.Price != "" {
+		svc = svc.Price(p.Price)
+	}
+	if p.Type == "LIMIT" {
+		svc = svc.TimeInForce(futures.TimeInForceTypeGTC)
+	}
+	res, err := svc.Do(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &port.OrderResult{OrderID: res.OrderID, Symbol: res.Symbol, Status: string(res.Status)}, nil
+}
+
+// createFuturesAlgoOrder places STOP_MARKET / TAKE_PROFIT_MARKET via the Algo
+// Order API. The result carries AlgoID (not OrderID): algo orders live in
+// their own namespace and are managed via GetOpenAlgoOrders/CancelAlgoOrder.
+func (a *BinanceAdapter) createFuturesAlgoOrder(ctx context.Context, p port.ContractOrderParams) (*port.OrderResult, error) {
+	if p.StopPrice == "" {
+		return nil, fmt.Errorf("stopPrice is required for %s orders", p.Type)
+	}
+	if !p.ClosePosition && p.Quantity == "" {
+		return nil, fmt.Errorf("quantity is required unless closePosition is true")
+	}
+	svc := a.futures.NewCreateAlgoOrderService().
+		AlgoType(futures.OrderAlgoTypeConditional).
+		Symbol(p.Symbol).
+		Side(futures.SideType(p.Side)).
+		Type(futures.AlgoOrderType(p.Type)).
+		TriggerPrice(p.StopPrice)
 	if p.ClosePosition {
 		// closePosition closes the whole position at trigger; Binance rejects
 		// quantity and reduceOnly alongside it.
@@ -570,20 +602,52 @@ func (a *BinanceAdapter) CreateContractOrder(ctx context.Context, p port.Contrac
 			svc = svc.ReduceOnly(true)
 		}
 	}
-	if p.Price != "" {
-		svc = svc.Price(p.Price)
+	res, err := svc.Do(ctx)
+	if err != nil {
+		return nil, err
 	}
-	if p.StopPrice != "" {
-		svc = svc.StopPrice(p.StopPrice)
-	}
-	if p.Type == "LIMIT" {
-		svc = svc.TimeInForce(futures.TimeInForceTypeGTC)
+	return &port.OrderResult{AlgoID: res.AlgoId, Symbol: res.Symbol, Status: string(res.AlgoStatus)}, nil
+}
+
+func (a *BinanceAdapter) GetOpenAlgoOrders(ctx context.Context, symbol string) ([]port.AlgoOrder, error) {
+	svc := a.futures.NewListOpenAlgoOrdersService()
+	if symbol != "" {
+		svc = svc.Symbol(symbol)
 	}
 	res, err := svc.Do(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return &port.OrderResult{OrderID: res.OrderID, Symbol: res.Symbol, Status: string(res.Status)}, nil
+	out := make([]port.AlgoOrder, len(res))
+	for i, o := range res {
+		out[i] = port.AlgoOrder{
+			AlgoID:        o.AlgoId,
+			Symbol:        o.Symbol,
+			Side:          string(o.Side),
+			Type:          string(o.OrderType),
+			Status:        string(o.AlgoStatus),
+			TriggerPrice:  o.TriggerPrice,
+			Quantity:      o.Quantity,
+			ReduceOnly:    o.ReduceOnly,
+			ClosePosition: o.ClosePosition,
+		}
+	}
+	return out, nil
+}
+
+func (a *BinanceAdapter) CancelAlgoOrder(ctx context.Context, algoID int64) (*port.AlgoCancelResult, error) {
+	if algoID <= 0 {
+		return nil, fmt.Errorf("algoId must be a positive integer, got %d", algoID)
+	}
+	res, err := a.futures.NewCancelAlgoOrderService().AlgoID(algoID).Do(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &port.AlgoCancelResult{
+		AlgoID:  int64(res.AlgoId),
+		Code:    res.Code,
+		Message: res.Message,
+	}, nil
 }
 
 func (a *BinanceAdapter) ClosePosition(ctx context.Context, symbol string) (*port.OrderResult, error) {

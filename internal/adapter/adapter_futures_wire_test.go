@@ -1,8 +1,10 @@
 package adapter
 
-// Wire-level tests for the futures additions: STOP_MARKET/TAKE_PROFIT_MARKET
-// contract orders (Binance -4120 forbids plain STOP/TAKE_PROFIT on
-// /fapi/v1/order), futures wallet balances, futures account trades, and the
+// Wire-level tests for the futures additions. Conditional orders
+// (STOP_MARKET / TAKE_PROFIT_MARKET) must go to the Algo Order API
+// (/fapi/v1/algoOrder, algoType=CONDITIONAL): Binance rejects them on
+// /fapi/v1/order with -4120 (bugfix002.md). Also covers algo order
+// list/cancel, futures wallet balances, futures account trades, and the
 // symbol filter on position risk. Same capturing-RoundTripper setup as
 // adapter_http_test.go.
 
@@ -17,7 +19,7 @@ import (
 // ─── create_contract_order: STOP_MARKET / TAKE_PROFIT_MARKET ─────────────────
 
 func TestCreateContractOrder_StopMarketWire(t *testing.T) {
-	a, ct := newWireAdapter(`{"symbol":"BTCUSDT","orderId":77,"status":"NEW"}`)
+	a, ct := newWireAdapter(`{"algoId":2146760,"symbol":"BTCUSDT","side":"SELL","algoStatus":"NEW","triggerPrice":"45000"}`)
 	res, err := a.CreateContractOrder(context.Background(), port.ContractOrderParams{
 		Symbol: "BTCUSDT", Side: "SELL", Type: "STOP_MARKET",
 		Quantity: "0.01", StopPrice: "45000", ReduceOnly: true,
@@ -26,14 +28,19 @@ func TestCreateContractOrder_StopMarketWire(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	req, params := ct.lastRequest(t)
-	if req.URL.Path != "/fapi/v1/order" {
-		t.Errorf("expected path /fapi/v1/order, got %s", req.URL.Path)
+	// -4120: conditional orders are rejected on /fapi/v1/order and must use
+	// the Algo Order API.
+	if req.URL.Path != "/fapi/v1/algoOrder" {
+		t.Errorf("expected path /fapi/v1/algoOrder, got %s", req.URL.Path)
+	}
+	if got := params.Get("algoType"); got != "CONDITIONAL" {
+		t.Errorf("expected algoType=CONDITIONAL, got %q", got)
 	}
 	if got := params.Get("type"); got != "STOP_MARKET" {
 		t.Errorf("expected type STOP_MARKET, got %q", got)
 	}
-	if got := params.Get("stopPrice"); got != "45000" {
-		t.Errorf("expected stopPrice=45000, got %q", got)
+	if got := params.Get("triggerPrice"); got != "45000" {
+		t.Errorf("expected triggerPrice=45000, got %q", got)
 	}
 	if got := params.Get("reduceOnly"); got != "true" {
 		t.Errorf("expected reduceOnly=true, got %q", got)
@@ -41,13 +48,19 @@ func TestCreateContractOrder_StopMarketWire(t *testing.T) {
 	if got := params.Get("quantity"); got != "0.01" {
 		t.Errorf("expected quantity=0.01, got %q", got)
 	}
-	if res.OrderID != 77 {
-		t.Errorf("expected orderId 77, got %d", res.OrderID)
+	if res.AlgoID != 2146760 {
+		t.Errorf("expected algoId 2146760, got %d", res.AlgoID)
+	}
+	if res.OrderID != 0 {
+		t.Errorf("expected no orderId for algo orders, got %d", res.OrderID)
+	}
+	if res.Status != "NEW" {
+		t.Errorf("expected status NEW, got %s", res.Status)
 	}
 }
 
 func TestCreateContractOrder_ClosePositionWire(t *testing.T) {
-	a, ct := newWireAdapter(`{"symbol":"BTCUSDT","orderId":78,"status":"NEW"}`)
+	a, ct := newWireAdapter(`{"algoId":2146761,"symbol":"BTCUSDT","side":"SELL","algoStatus":"NEW","closePosition":true}`)
 	_, err := a.CreateContractOrder(context.Background(), port.ContractOrderParams{
 		Symbol: "BTCUSDT", Side: "SELL", Type: "TAKE_PROFIT_MARKET",
 		StopPrice: "60000", ClosePosition: true,
@@ -55,7 +68,10 @@ func TestCreateContractOrder_ClosePositionWire(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	_, params := ct.lastRequest(t)
+	req, params := ct.lastRequest(t)
+	if req.URL.Path != "/fapi/v1/algoOrder" {
+		t.Errorf("expected path /fapi/v1/algoOrder, got %s", req.URL.Path)
+	}
 	if got := params.Get("closePosition"); got != "true" {
 		t.Errorf("expected closePosition=true, got %q", got)
 	}
@@ -66,8 +82,105 @@ func TestCreateContractOrder_ClosePositionWire(t *testing.T) {
 	if got := params.Get("reduceOnly"); got != "" {
 		t.Errorf("expected no reduceOnly param, got %q", got)
 	}
-	if got := params.Get("stopPrice"); got != "60000" {
-		t.Errorf("expected stopPrice=60000, got %q", got)
+	if got := params.Get("triggerPrice"); got != "60000" {
+		t.Errorf("expected triggerPrice=60000, got %q", got)
+	}
+}
+
+// Regular (non-conditional) futures orders must keep using /fapi/v1/order.
+func TestCreateContractOrder_MarketStillRegularEndpoint(t *testing.T) {
+	a, ct := newWireAdapter(`{"symbol":"BTCUSDT","orderId":77,"status":"NEW"}`)
+	res, err := a.CreateContractOrder(context.Background(), port.ContractOrderParams{
+		Symbol: "BTCUSDT", Side: "BUY", Type: "MARKET", Quantity: "0.002",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	req, params := ct.lastRequest(t)
+	if req.URL.Path != "/fapi/v1/order" {
+		t.Errorf("expected path /fapi/v1/order, got %s", req.URL.Path)
+	}
+	if got := params.Get("type"); got != "MARKET" {
+		t.Errorf("expected type MARKET, got %q", got)
+	}
+	if res.OrderID != 77 {
+		t.Errorf("expected orderId 77, got %d", res.OrderID)
+	}
+}
+
+// ─── algo orders: list and cancel ────────────────────────────────────────────
+
+func TestGetOpenAlgoOrders_Wire(t *testing.T) {
+	a, ct := newWireAdapter(`[{"algoId":2146760,"symbol":"BTCUSDT","side":"SELL","orderType":"STOP_MARKET","algoStatus":"NEW","triggerPrice":"45000","quantity":"0.002","reduceOnly":true,"closePosition":false}]`)
+	res, err := a.GetOpenAlgoOrders(context.Background(), "BTCUSDT")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	req, params := ct.lastRequest(t)
+	if req.URL.Path != "/fapi/v1/openAlgoOrders" {
+		t.Errorf("expected path /fapi/v1/openAlgoOrders, got %s", req.URL.Path)
+	}
+	if got := params.Get("symbol"); got != "BTCUSDT" {
+		t.Errorf("expected symbol=BTCUSDT, got %q", got)
+	}
+	if len(res) != 1 {
+		t.Fatalf("expected 1 algo order, got %d", len(res))
+	}
+	o := res[0]
+	if o.AlgoID != 2146760 || o.Type != "STOP_MARKET" || o.TriggerPrice != "45000" || !o.ReduceOnly {
+		t.Errorf("unexpected mapped algo order: %+v", o)
+	}
+}
+
+func TestGetOpenAlgoOrders_NoSymbol(t *testing.T) {
+	a, ct := newWireAdapter(`[]`)
+	res, err := a.GetOpenAlgoOrders(context.Background(), "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	_, params := ct.lastRequest(t)
+	if got := params.Get("symbol"); got != "" {
+		t.Errorf("expected no symbol param, got %q", got)
+	}
+	if len(res) != 0 {
+		t.Errorf("expected empty list, got %+v", res)
+	}
+}
+
+func TestCancelAlgoOrder_Wire(t *testing.T) {
+	a, ct := newWireAdapter(`{"algoId":2146760,"clientAlgoId":"abc","code":"200","msg":"success"}`)
+	res, err := a.CancelAlgoOrder(context.Background(), 2146760)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	req, params := ct.lastRequest(t)
+	if req.URL.Path != "/fapi/v1/algoOrder" {
+		t.Errorf("expected path /fapi/v1/algoOrder, got %s", req.URL.Path)
+	}
+	if req.Method != "DELETE" {
+		t.Errorf("expected DELETE, got %s", req.Method)
+	}
+	if got := params.Get("algoId"); got != "2146760" {
+		t.Errorf("expected algoId=2146760, got %q", got)
+	}
+	if res.AlgoID != 2146760 {
+		t.Errorf("expected algoId 2146760 in result, got %d", res.AlgoID)
+	}
+}
+
+func TestCancelAlgoOrder_RejectsInvalidID(t *testing.T) {
+	for _, id := range []int64{0, -5} {
+		a, ct := newWireAdapter(`{}`)
+		_, err := a.CancelAlgoOrder(context.Background(), id)
+		if err == nil {
+			t.Fatalf("algoId=%d: expected validation error, got nil", id)
+		}
+		if !strings.Contains(err.Error(), "algoId must be a positive integer") {
+			t.Errorf("algoId=%d: unexpected error: %v", id, err)
+		}
+		if len(ct.requests) != 0 {
+			t.Errorf("algoId=%d: expected no HTTP request, got %d", id, len(ct.requests))
+		}
 	}
 }
 

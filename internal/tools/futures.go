@@ -11,7 +11,7 @@ import (
 )
 
 func registerCreateContractOrder(s *server.MCPServer, b port.BinancePort) {
-	t := toolWithRawSchema("create_contract_order", "Create a futures/contract order", `{
+	t := toolWithRawSchema("create_contract_order", "Create a futures/contract order. STOP_MARKET and TAKE_PROFIT_MARKET are placed via the Algo Order API and return an algoId (NOT an orderId): list them with get_open_algo_orders and cancel them with cancel_algo_order, never with cancel_order.", `{
 		"type":"object",
 		"required":["symbol","side","type"],
 		"properties":{
@@ -62,6 +62,39 @@ func registerClosePosition(s *server.MCPServer, b port.BinancePort) {
 		res, err := b.ClosePosition(ctx, getString(req, "symbol"))
 		if err != nil {
 			return resultErr("close_position failed: %v", err)
+		}
+		return resultJSON(res)
+	})
+}
+
+func registerGetOpenAlgoOrders(s *server.MCPServer, b port.BinancePort) {
+	t := toolWithRawSchema("get_open_algo_orders", "List open futures conditional (algo) orders — the STOP_MARKET/TAKE_PROFIT_MARKET orders placed by create_contract_order. These do NOT appear in get_open_orders.", `{
+		"type":"object",
+		"properties":{
+			"symbol": {"type":"string","description":"Optional; restrict the result to one symbol"}
+		}
+	}`)
+	s.AddTool(t, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		res, err := b.GetOpenAlgoOrders(ctx, getString(req, "symbol"))
+		if err != nil {
+			return resultErr("get_open_algo_orders failed: %v", err)
+		}
+		return resultJSON(res)
+	})
+}
+
+func registerCancelAlgoOrder(s *server.MCPServer, b port.BinancePort) {
+	t := toolWithRawSchema("cancel_algo_order", "Cancel a futures conditional (algo) order by its algoId — for the STOP_MARKET/TAKE_PROFIT_MARKET orders placed by create_contract_order. Regular orders are canceled with cancel_order instead.", `{
+		"type":"object",
+		"required":["algoId"],
+		"properties":{
+			"algoId": {"type":"integer","description":"The algoId returned by create_contract_order or get_open_algo_orders"}
+		}
+	}`)
+	s.AddTool(t, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		res, err := b.CancelAlgoOrder(ctx, getInt64(req, "algoId"))
+		if err != nil {
+			return resultErr("cancel_algo_order failed: %v", err)
 		}
 		return resultJSON(res)
 	})

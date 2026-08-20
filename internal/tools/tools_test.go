@@ -535,6 +535,39 @@ func TestCreateContractOrder_Error(t *testing.T) {
 	assertError(t, res, "create_contract_order failed")
 }
 
+func TestGetOpenAlgoOrders_Success(t *testing.T) {
+	m := &mockPort{algoOrders: []port.AlgoOrder{{AlgoID: 2146760, Symbol: "BTCUSDT", Type: "STOP_MARKET", Status: "NEW"}}}
+	res := callTool(t, m, "get_open_algo_orders", map[string]any{"symbol": "BTCUSDT"})
+	assertOK(t, res)
+	if m.lastAlgoOrdersSymbol != "BTCUSDT" {
+		t.Errorf("expected symbol BTCUSDT, got %s", m.lastAlgoOrdersSymbol)
+	}
+	if !strings.Contains(firstText(res), "2146760") {
+		t.Error("expected algoId 2146760 in response")
+	}
+}
+
+func TestGetOpenAlgoOrders_Error(t *testing.T) {
+	m := &mockPort{errAlgoOrders: sentinelErr}
+	res := callTool(t, m, "get_open_algo_orders", map[string]any{})
+	assertError(t, res, "get_open_algo_orders failed")
+}
+
+func TestCancelAlgoOrder_Success(t *testing.T) {
+	m := &mockPort{algoCancelResult: &port.AlgoCancelResult{AlgoID: 2146760, Code: "200", Message: "success"}}
+	res := callTool(t, m, "cancel_algo_order", map[string]any{"algoId": float64(2146760)})
+	assertOK(t, res)
+	if m.lastCancelAlgoID != 2146760 {
+		t.Errorf("expected algoId 2146760, got %d", m.lastCancelAlgoID)
+	}
+}
+
+func TestCancelAlgoOrder_Error(t *testing.T) {
+	m := &mockPort{errCancelAlgoOrder: sentinelErr}
+	res := callTool(t, m, "cancel_algo_order", map[string]any{"algoId": float64(1)})
+	assertError(t, res, "cancel_algo_order failed")
+}
+
 func TestClosePosition_Success(t *testing.T) {
 	m := &mockPort{spotOrderResult: &port.OrderResult{OrderID: 30, Symbol: "BTCUSDT", Status: "NEW"}}
 	res := callTool(t, m, "close_position", map[string]any{"symbol": "BTCUSDT"})

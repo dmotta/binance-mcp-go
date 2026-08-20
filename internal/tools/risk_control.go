@@ -11,7 +11,7 @@ import (
 )
 
 func registerCreateStopLossOrder(s *server.MCPServer, b port.BinancePort) {
-	t := toolWithRawSchema("create_stop_loss_order", "Create stop loss order", `{
+	t := toolWithRawSchema("create_stop_loss_order", "Create a stop loss order on the SPOT market only — it does NOT protect futures positions. For a futures stop-loss use create_contract_order with type=STOP_MARKET and reduceOnly or closePosition.", `{
 		"type":"object",
 		"required":["symbol","side","quantity","stopPrice"],
 		"properties":{
@@ -36,7 +36,7 @@ func registerCreateStopLossOrder(s *server.MCPServer, b port.BinancePort) {
 }
 
 func registerCreateTakeProfitOrder(s *server.MCPServer, b port.BinancePort) {
-	t := toolWithRawSchema("create_take_profit_order", "Create take profit order", `{
+	t := toolWithRawSchema("create_take_profit_order", "Create a take profit order on the SPOT market only — it does NOT apply to futures positions. For a futures take-profit use create_contract_order with type=TAKE_PROFIT_MARKET and reduceOnly or closePosition.", `{
 		"type":"object",
 		"required":["symbol","side","quantity","stopPrice"],
 		"properties":{
@@ -61,7 +61,7 @@ func registerCreateTakeProfitOrder(s *server.MCPServer, b port.BinancePort) {
 }
 
 func registerCreateStopLimitOrder(s *server.MCPServer, b port.BinancePort) {
-	t := toolWithRawSchema("create_stop_limit_order", "Create stop limit order", `{
+	t := toolWithRawSchema("create_stop_limit_order", "Create a stop limit order (SPOT market only)", `{
 		"type":"object",
 		"required":["symbol","side","quantity","stopPrice","limitPrice"],
 		"properties":{
@@ -88,7 +88,7 @@ func registerCreateStopLimitOrder(s *server.MCPServer, b port.BinancePort) {
 }
 
 func registerCreateTrailingStopOrder(s *server.MCPServer, b port.BinancePort) {
-	t := toolWithRawSchema("create_trailing_stop_order", "Create trailing stop order. callbackRate is a PERCENTAGE (1.5 = 1.5%), valid range 0.1-20; the server converts it to BIPS (trailingDelta) internally — do NOT pre-convert.", `{
+	t := toolWithRawSchema("create_trailing_stop_order", "Create a trailing stop order (SPOT market only). callbackRate is a PERCENTAGE (1.5 = 1.5%), valid range 0.1-20; the server converts it to BIPS (trailingDelta) internally — do NOT pre-convert.", `{
 		"type":"object",
 		"required":["symbol","side","quantity","callbackRate"],
 		"properties":{
@@ -113,7 +113,7 @@ func registerCreateTrailingStopOrder(s *server.MCPServer, b port.BinancePort) {
 }
 
 func registerCreateOCOOrder(s *server.MCPServer, b port.BinancePort) {
-	t := toolWithRawSchema("create_oco_order", "Create OCO order", `{
+	t := toolWithRawSchema("create_oco_order", "Create OCO order (SPOT market only)", `{
 		"type":"object",
 		"required":["symbol","side","quantity","price","stopPrice"],
 		"properties":{
