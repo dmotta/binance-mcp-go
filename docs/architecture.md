@@ -188,7 +188,7 @@ classDiagram
 ## 📂 Desglose Detallado de los Módulos
 
 ### 1. Punto de Entrada (`main.go`)
-El archivo [main.go](file:///Users/dmotta/Documents/ws-github-dmotta/binance-mcp-go/main.go) actúa como el inicializador (orquestador) del servidor.
+El archivo [main.go](../main.go) actúa como el inicializador (orquestador) del servidor.
 *   **Inicialización del Contexto**: Configura la escucha de señales del sistema (`SIGTERM`, `os.Interrupt`) a través de un contexto cancelable para asegurar un apagado ordenado.
 *   **Carga de Configuración**: Carga las credenciales y configuraciones del entorno (`config.Load()`).
 *   **Inicialización de Observabilidad**: Arranca OpenTelemetry y slog.
@@ -200,7 +200,7 @@ El archivo [main.go](file:///Users/dmotta/Documents/ws-github-dmotta/binance-mcp
 ---
 
 ### 2. Módulo de Configuración (`internal/config`)
-Ubicado en [config.go](file:///Users/dmotta/Documents/ws-github-dmotta/binance-mcp-go/internal/config/config.go), gestiona la lectura de variables de entorno con valores por defecto seguros:
+Ubicado en [config.go](../internal/config/config.go), gestiona la lectura de variables de entorno con valores por defecto seguros:
 *   `BINANCE_API_KEY` y `BINANCE_SECRET_KEY`: Requeridas obligatoriamente para inicializar la conexión.
 *   `BINANCE_TESTNET`: Define si se apunta a los dominios de prueba.
 *   `TIMEOUT_SECONDS`: Controla el tiempo de espera por defecto de las llamadas HTTP (30 segundos por defecto).
@@ -210,7 +210,7 @@ Ubicado en [config.go](file:///Users/dmotta/Documents/ws-github-dmotta/binance-m
 ---
 
 ### 3. Módulo de Observabilidad (`internal/observability`)
-Ubicado en [observability.go](file:///Users/dmotta/Documents/ws-github-dmotta/binance-mcp-go/internal/observability/observability.go), establece una infraestructura de instrumentación unificada:
+Ubicado en [observability.go](../internal/observability/observability.go), establece una infraestructura de instrumentación unificada:
 *   **JSON logging**: Configura el logger estructurado nativo de Go `slog` con salida en formato JSON en un archivo de registro exclusivo.
 *   **OpenTelemetry Tracing**: Inicializa un `TracerProvider` con un batcher que exporta trazas en formato estructurado al mismo archivo de log.
 *   **OpenTelemetry Metrics**: Inicializa un `MeterProvider` periódico para emitir métricas del comportamiento de llamadas de red.
@@ -219,21 +219,21 @@ Ubicado en [observability.go](file:///Users/dmotta/Documents/ws-github-dmotta/bi
 ---
 
 ### 4. Middlewares de Transporte HTTP (`internal/httpmw`)
-Este módulo redefine el comportamiento de `http.RoundTripper` para interceptar cada petición HTTP saliente. Utiliza un patrón de decoración mediante la función `Chain(...)` en [chain.go](file:///Users/dmotta/Documents/ws-github-dmotta/binance-mcp-go/internal/httpmw/chain.go) que crea la siguiente secuencia:
+Este módulo redefine el comportamiento de `http.RoundTripper` para interceptar cada petición HTTP saliente. Utiliza un patrón de decoración mediante la función `Chain(...)` en [chain.go](../internal/httpmw/chain.go) que crea la siguiente secuencia:
 
 #### A. Telemetría (`otelhttp.go`)
-El middleware [otelhttp.go](file:///Users/dmotta/Documents/ws-github-dmotta/binance-mcp-go/internal/httpmw/otelhttp.go) abre un Span de OpenTelemetry en cada solicitud REST externa, inyectando atributos clave como `http.method`, `http.url` y registrando errores y códigos de estado en la telemetría. Además, incrementa un contador global `http.client.requests`.
+El middleware [otelhttp.go](../internal/httpmw/otelhttp.go) abre un Span de OpenTelemetry en cada solicitud REST externa, inyectando atributos clave como `http.method`, `http.url` y registrando errores y códigos de estado en la telemetría. Además, incrementa un contador global `http.client.requests`.
 
 #### B. Disyuntor / Circuit Breaker (`circuitbreaker.go`)
-Usa `github.com/sony/gobreaker/v2` en [circuitbreaker.go](file:///Users/dmotta/Documents/ws-github-dmotta/binance-mcp-go/internal/httpmw/circuitbreaker.go). Si el servidor de Binance devuelve errores HTTP >= 500 consecutivamente 5 veces, el circuito entra en estado **Abierto (Open)** y rechaza inmediatamente las peticiones futuras de forma local durante un período de enfriamiento para evitar desperdiciar hilos y mitigar la congestión del servidor remoto.
+Usa `github.com/sony/gobreaker/v2` en [circuitbreaker.go](../internal/httpmw/circuitbreaker.go). Si el servidor de Binance devuelve errores HTTP >= 500 consecutivamente 5 veces, el circuito entra en estado **Abierto (Open)** y rechaza inmediatamente las peticiones futuras de forma local durante un período de enfriamiento para evitar desperdiciar hilos y mitigar la congestión del servidor remoto.
 
 #### C. Políticas de Reintento (`retry.go`)
-Implementado en [retry.go](file:///Users/dmotta/Documents/ws-github-dmotta/binance-mcp-go/internal/httpmw/retry.go):
+Implementado en [retry.go](../internal/httpmw/retry.go):
 *   Realiza hasta **3 intentos** con un algoritmo de retroceso exponencial (`backoff`) con fluctuación aleatoria (`jitter`) para evitar el problema de la manada atronadora.
 *   **Seguridad de Idempotencia**: Contiene una validación crítica. Si la petición tiene un cuerpo de solicitud (`req.Body`) que no se puede rebobinar (`req.GetBody == nil`), se omite el reintento. Esto previene reintentar órdenes de trading pendientes cuya re-ejecución podría duplicar una transacción de mercado.
 
 #### D. Límite de Tasa / Rate Limiting (`ratelimit.go`)
-Implementado en [ratelimit.go](file:///Users/dmotta/Documents/ws-github-dmotta/binance-mcp-go/internal/httpmw/ratelimit.go):
+Implementado en [ratelimit.go](../internal/httpmw/ratelimit.go):
 *   Binance impone un límite de peso de solicitud de 1200 por minuto. Este middleware lee la cabecera `X-Mbx-Used-Weight-1M` devuelta en cada respuesta HTTP de Binance y actualiza un contador atómico local.
 *   Si el peso acumulado cruza un **umbral de advertencia** (`weightThreshold = 1100`), el middleware bloquea automáticamente las solicitudes de forma preventiva hasta el inicio del siguiente minuto para evitar bloqueos drásticos (HTTP 429 / 418 IP ban).
 *   En caso de recibir una respuesta de saturación, analiza la cabecera `Retry-After` y bloquea el hilo cliente durante el período exacto solicitado por el servidor de Binance.
@@ -241,7 +241,7 @@ Implementado en [ratelimit.go](file:///Users/dmotta/Documents/ws-github-dmotta/b
 ---
 
 ### 5. Puerto Hexagonal (`internal/port`)
-El archivo [port.go](file:///Users/dmotta/Documents/ws-github-dmotta/binance-mcp-go/internal/port/port.go) define todas las estructuras de datos genéricas de dominio (e.g. `Order`, `Balance`, `Ticker`, `Kline`) y declara la interfaz `BinancePort`.
+El archivo [port.go](../internal/port/port.go) define todas las estructuras de datos genéricas de dominio (e.g. `Order`, `Balance`, `Ticker`, `Kline`) y declara la interfaz `BinancePort`.
 
 ```go
 type BinancePort interface {
@@ -258,7 +258,7 @@ Esta interfaz unifica todas las capacidades y oculta los tipos específicos de S
 ---
 
 ### 6. Adaptador de SDK de Binance (`internal/adapter`)
-El archivo [adapter.go](file:///Users/dmotta/Documents/ws-github-dmotta/binance-mcp-go/internal/adapter/adapter.go) implementa la interfaz `BinancePort`. Se encarga de traducir los parámetros genéricos a llamadas de la librería SDK `go-binance`.
+El archivo [adapter.go](../internal/adapter/adapter.go) implementa la interfaz `BinancePort`. Se encarga de traducir los parámetros genéricos a llamadas de la librería SDK `go-binance`.
 
 #### Lógicas Críticas del Adaptador:
 *   **Options Guard (`optionsGuard`)**: Binance no ofrece un entorno de pruebas público (testnet) para Opciones. El adaptador implementa un guardián que rechaza cualquier llamada a herramientas de opciones si `BINANCE_TESTNET` está activo, devolviendo un error controlado y descriptivo.
@@ -271,7 +271,7 @@ El archivo [adapter.go](file:///Users/dmotta/Documents/ws-github-dmotta/binance-
 ---
 
 ### 7. Capa de Herramientas MCP (`internal/tools`)
-El paquete `internal/tools` expone los puntos de entrada para el servidor MCP. Se divide en archivos temáticos (e.g., [spot_trading.go](file:///Users/dmotta/Documents/ws-github-dmotta/binance-mcp-go/internal/tools/spot_trading.go), [risk_control.go](file:///Users/dmotta/Documents/ws-github-dmotta/binance-mcp-go/internal/tools/risk_control.go), [account.go](file:///Users/dmotta/Documents/ws-github-dmotta/binance-mcp-go/internal/tools/account.go)).
+El paquete `internal/tools` expone los puntos de entrada para el servidor MCP. Se divide en archivos temáticos (e.g., [spot_trading.go](../internal/tools/spot_trading.go), [risk_control.go](../internal/tools/risk_control.go), [account.go](../internal/tools/account.go)).
 
 Cada archivo registra sus herramientas en el servidor usando esquemas JSON estructurados y funciones controladoras:
 

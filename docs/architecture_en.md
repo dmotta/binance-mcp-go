@@ -188,7 +188,7 @@ classDiagram
 ## 📂 Detailed Module Breakdown
 
 ### 1. Entry Point (`main.go`)
-[main.go](file:///Users/dmotta/Documents/ws-github-dmotta/binance-mcp-go/main.go) orchestrates the application startup:
+[main.go](../main.go) orchestrates the application startup:
 *   **Context Setup**: Sets up signal listening (`SIGTERM`, `os.Interrupt`) using a cancelable context to ensure clean shutdowns.
 *   **Config Loading**: Loads variables from the environment (`config.Load()`).
 *   **Observability Startup**: Initializes slog logging and OpenTelemetry.
@@ -200,7 +200,7 @@ classDiagram
 ---
 
 ### 2. Configuration (`internal/config`)
-Defined in [config.go](file:///Users/dmotta/Documents/ws-github-dmotta/binance-mcp-go/internal/config/config.go), this package reads configuration parameters from environment variables:
+Defined in [config.go](../internal/config/config.go), this package reads configuration parameters from environment variables:
 *   `BINANCE_API_KEY` and `BINANCE_SECRET_KEY`: Required credentials.
 *   `BINANCE_TESTNET`: Specifies whether the server directs requests to the Binance Testnet domains.
 *   `TIMEOUT_SECONDS`: Maximum HTTP request wait time (defaults to 30 seconds).
@@ -210,7 +210,7 @@ Defined in [config.go](file:///Users/dmotta/Documents/ws-github-dmotta/binance-m
 ---
 
 ### 3. Observability (`internal/observability`)
-Defined in [observability.go](file:///Users/dmotta/Documents/ws-github-dmotta/binance-mcp-go/internal/observability/observability.go), this module configures local telemetry:
+Defined in [observability.go](../internal/observability/observability.go), this module configures local telemetry:
 *   **JSON logging**: Creates a structured log engine using `slog` outputting JSON directly to the log file.
 *   **OpenTelemetry Tracing**: Sets up a tracer writing spans to the log file in JSON.
 *   **OpenTelemetry Metrics**: Registers periodic readers to emit network metrics.
@@ -219,21 +219,21 @@ Defined in [observability.go](file:///Users/dmotta/Documents/ws-github-dmotta/bi
 ---
 
 ### 4. HTTP Transport Middlewares (`internal/httpmw`)
-Middlewares intercept outgoing HTTP calls by wrapping `http.RoundTripper` in a decorator pattern. The chain is constructed in [chain.go](file:///Users/dmotta/Documents/ws-github-dmotta/binance-mcp-go/internal/httpmw/chain.go) as follows:
+Middlewares intercept outgoing HTTP calls by wrapping `http.RoundTripper` in a decorator pattern. The chain is constructed in [chain.go](../internal/httpmw/chain.go) as follows:
 
 #### A. Telemetry (`otelhttp.go`)
-[otelhttp.go](file:///Users/dmotta/Documents/ws-github-dmotta/binance-mcp-go/internal/httpmw/otelhttp.go) intercepts outgoing requests to record HTTP methods, URL paths, and status codes. It increments the `http.client.requests` counter and tags errors on failed network requests.
+[otelhttp.go](../internal/httpmw/otelhttp.go) intercepts outgoing requests to record HTTP methods, URL paths, and status codes. It increments the `http.client.requests` counter and tags errors on failed network requests.
 
 #### B. Circuit Breaker (`circuitbreaker.go`)
-Uses `github.com/sony/gobreaker/v2` in [circuitbreaker.go](file:///Users/dmotta/Documents/ws-github-dmotta/binance-mcp-go/internal/httpmw/circuitbreaker.go). If the Binance API returns 5xx status codes (or transport failures) 5 consecutive times, the breaker trips to **Open**, preventing additional network calls locally during a cool-down period.
+Uses `github.com/sony/gobreaker/v2` in [circuitbreaker.go](../internal/httpmw/circuitbreaker.go). If the Binance API returns 5xx status codes (or transport failures) 5 consecutive times, the breaker trips to **Open**, preventing additional network calls locally during a cool-down period.
 
 #### C. Exponential Retries (`retry.go`)
-Defined in [retry.go](file:///Users/dmotta/Documents/ws-github-dmotta/binance-mcp-go/internal/httpmw/retry.go):
+Defined in [retry.go](../internal/httpmw/retry.go):
 *   Attempts requests up to **3 times** with exponential backoff and randomized jitter to prevent thundering herd conditions.
 *   **Idempotency Safety**: Verifies if the request body is rewindable (`req.GetBody != nil`). If a request body cannot be rewound (e.g., streaming payloads), the retry is aborted. This prevents duplicate executions on orders, protecting the wallet against unintended duplicate trades.
 
 #### D. Rate Limiting (`ratelimit.go`)
-Defined in [ratelimit.go](file:///Users/dmotta/Documents/ws-github-dmotta/binance-mcp-go/internal/httpmw/ratelimit.go):
+Defined in [ratelimit.go](../internal/httpmw/ratelimit.go):
 *   Binance enforces a request weight limit of 1200 per minute. This middleware reads the `X-Mbx-Used-Weight-1M` header from responses to track used weight.
 *   If used weight crosses the warning threshold (`weightThreshold = 1100`), the middleware blocks new requests until the next minute boundary to avoid receiving IP bans (HTTP 418/429).
 *   If an HTTP 429/418 is received, it parses the `Retry-After` header and sleeps for the requested duration.
@@ -241,12 +241,12 @@ Defined in [ratelimit.go](file:///Users/dmotta/Documents/ws-github-dmotta/binanc
 ---
 
 ### 5. Hexagonal Port (`internal/port`)
-Declared in [port.go](file:///Users/dmotta/Documents/ws-github-dmotta/binance-mcp-go/internal/port/port.go), `BinancePort` is the interface isolating core domain models (`Order`, `Balance`, `Ticker`, `Kline`) from the specific API implementation details.
+Declared in [port.go](../internal/port/port.go), `BinancePort` is the interface isolating core domain models (`Order`, `Balance`, `Ticker`, `Kline`) from the specific API implementation details.
 
 ---
 
 ### 6. Binance SDK Adapter (`internal/adapter`)
-Written in [adapter.go](file:///Users/dmotta/Documents/ws-github-dmotta/binance-mcp-go/internal/adapter/adapter.go), `BinanceAdapter` implements `BinancePort` by calling the `go-binance` library:
+Written in [adapter.go](../internal/adapter/adapter.go), `BinanceAdapter` implements `BinancePort` by calling the `go-binance` library:
 *   **Options Guard (`optionsGuard`)**: Since Binance does not offer a public Options testnet, this helper returns an error if options tools are triggered in testnet mode.
 *   **Position Closing Logic (`ClosePosition`)**: Close actions require calculating exact opposite sides and checking position settings:
     1.  Queries active positions via `NewGetPositionRiskService()`.
@@ -257,7 +257,7 @@ Written in [adapter.go](file:///Users/dmotta/Documents/ws-github-dmotta/binance-
 ---
 
 ### 7. MCP Tools Layer (`internal/tools`)
-The `internal/tools` package registers JSON-RPC tool endpoints with the MCP server (e.g., [spot_trading.go](file:///Users/dmotta/Documents/ws-github-dmotta/binance-mcp-go/internal/tools/spot_trading.go), [risk_control.go](file:///Users/dmotta/Documents/ws-github-dmotta/binance-mcp-go/internal/tools/risk_control.go), [account.go](file:///Users/dmotta/Documents/ws-github-dmotta/binance-mcp-go/internal/tools/account.go)).
+The `internal/tools` package registers JSON-RPC tool endpoints with the MCP server (e.g., [spot_trading.go](../internal/tools/spot_trading.go), [risk_control.go](../internal/tools/risk_control.go), [account.go](../internal/tools/account.go)).
 
 *   **Schema Registration**: Calls `toolWithRawSchema` to register raw JSON schemas.
 *   **Type Conversions**: Tool arguments are parsed from JSON values. Quantities and prices are parsed, validated, and formatted into strings (`%g`) to feed the SDK.

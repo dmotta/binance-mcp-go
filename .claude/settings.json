@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(grep -n \"sony/gobreaker\\\\|gobreaker\" /Users/dmotta/go/pkg/mod/github.com/mark3labs -r 2>/dev/null | head -5; find /Users/dmotta/go/pkg/mod/github.com/sony -name \"*.go\" 2>/dev/null | head -10)",
-      "Read(//Users/dmotta/go/pkg/mod/github.com/mark3labs/**)",
-      "Read(//Users/dmotta/go/pkg/mod/github.com/**)"
-    ]
-  }
-}

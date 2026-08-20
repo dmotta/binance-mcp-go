@@ -1,0 +1,19 @@
+# Compiled binaries
+/binance-mcp-go
+*.exe
+*.test
+*.out
+
+# Go build/test artifacts
+/bin/
+/dist/
+
+# Environment / secrets
+.env
+.env.*
+
+# OS
+.DS_Store
+
+# Claude Code local state (machine-specific, not for sharing)
+.claude/
