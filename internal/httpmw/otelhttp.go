@@ -1,6 +1,7 @@
 package httpmw
 
 import (
+	"errors"
 	"net/http"
 
 	"go.opentelemetry.io/otel"
@@ -8,6 +9,8 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
+
+	"binance-mcp-go/internal/redact"
 )
 
 type otelTransport struct {
@@ -30,7 +33,10 @@ func (t *otelTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		trace.WithSpanKind(trace.SpanKindClient),
 		trace.WithAttributes(
 			attribute.String("http.method", req.Method),
-			attribute.String("http.url", req.URL.String()),
+			// Redact the signed URL: the query string carries the request
+			// signature (and could carry an apiKey), which must not be written
+			// to the log file. OWASP A09:2021.
+			attribute.String("http.url", redact.URL(req.URL.String())),
 		),
 	)
 	defer span.End()
@@ -43,8 +49,11 @@ func (t *otelTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
+		// Record a redacted copy: a transport error can embed the full signed
+		// request URL. The original err is still returned to the caller intact.
+		safeErr := errors.New(redact.Error(err))
+		span.RecordError(safeErr)
+		span.SetStatus(codes.Error, safeErr.Error())
 		attrs = append(attrs, attribute.String("http.status", "error"))
 	} else {
 		attrs = append(attrs, attribute.Int("http.status_code", resp.StatusCode))
