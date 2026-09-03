@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"github.com/mark3labs/mcp-go/mcp"
+
+	"binance-mcp-go/internal/redact"
 )
 
 func resultJSON(v any) (*mcp.CallToolResult, error) {
@@ -15,8 +17,12 @@ func resultJSON(v any) (*mcp.CallToolResult, error) {
 	return mcp.NewToolResultText(string(b)), nil
 }
 
+// resultErr formats a tool error for the MCP client. The message is redacted
+// so that a transport-level failure (whose error embeds the full signed request
+// URL, including the signature) can never leak sensitive data to the model or
+// host consuming the tool result. OWASP A09:2021 / A02:2021.
 func resultErr(format string, args ...any) (*mcp.CallToolResult, error) {
-	return mcp.NewToolResultError(fmt.Sprintf(format, args...)), nil
+	return mcp.NewToolResultError(redact.String(fmt.Sprintf(format, args...))), nil
 }
 
 func getString(req mcp.CallToolRequest, key string) string {

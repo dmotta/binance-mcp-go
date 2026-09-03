@@ -28,12 +28,29 @@ func newBackoff() *backoff.Backoff {
 	}
 }
 
+// isIdempotent reports whether an HTTP method is safe to send more than once.
+// Only GET and HEAD qualify: they have no side effects, so a retry after a 5xx
+// or transport error cannot change account state.
+//
+// POST/DELETE/PUT/PATCH are NOT retried. Binance places order parameters and the
+// request signature in the query string with an empty body, so a body-rewind
+// heuristic cannot distinguish a trade from a read. More importantly, a 5xx or a
+// dropped connection may arrive AFTER Binance has already executed the request;
+// replaying it would duplicate an order, cancellation, or fund transfer. This is
+// a fail-safe default (NIST SP 800-160 secure-design): when the outcome of a
+// state-changing request is unknown, do not repeat it. (OWASP A04:2021.)
+func isIdempotent(method string) bool {
+	switch method {
+	case http.MethodGet, http.MethodHead:
+		return true
+	default:
+		return false
+	}
+}
+
 func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	// A request whose body cannot be rewound must not be retried: replaying it
-	// would send an empty/partial body (e.g. a signed order with no payload),
-	// which Binance rejects or, worse, mis-signs. Trading calls are not
-	// idempotent, so we only ever send them once.
-	if req.Body != nil && req.Body != http.NoBody && req.GetBody == nil {
+	// Non-idempotent requests are sent at most once. See isIdempotent.
+	if !isIdempotent(req.Method) {
 		return t.next.RoundTrip(req)
 	}
 

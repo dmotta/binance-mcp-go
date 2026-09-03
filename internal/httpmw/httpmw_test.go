@@ -51,8 +51,31 @@ func resp(status int) *http.Response {
 	}
 }
 
+// reqWithBody builds a POST request; used by the circuit-breaker and rate-limit
+// tests, whose behavior is independent of the HTTP method.
 func reqWithBody(body string) *http.Request {
 	r, _ := http.NewRequest(http.MethodPost, "https://api.binance.com/order", strings.NewReader(body))
+	return r
+}
+
+// reqGet builds an idempotent GET request — the only kind the retry layer is
+// allowed to replay.
+func reqGet() *http.Request {
+	r, _ := http.NewRequest(http.MethodGet, "https://api.binance.com/api/v3/order", nil)
+	return r
+}
+
+// reqGetWithBody builds a GET carrying a rewindable body, to exercise the
+// body-rewind clone path on a retryable method.
+func reqGetWithBody(body string) *http.Request {
+	r, _ := http.NewRequest(http.MethodGet, "https://api.binance.com/api/v3/order", strings.NewReader(body))
+	return r
+}
+
+// reqPost builds a non-idempotent POST — an order-placement shape that must
+// never be retried, even when its body is rewindable.
+func reqPost(body string) *http.Request {
+	r, _ := http.NewRequest(http.MethodPost, "https://api.binance.com/api/v3/order", strings.NewReader(body))
 	return r
 }
 
@@ -61,7 +84,7 @@ func reqWithBody(body string) *http.Request {
 func TestRetry_SuccessNoRetry(t *testing.T) {
 	f := &fakeRT{responses: []*http.Response{resp(200)}}
 	rt := NewRetryTransport(f)
-	r, err := rt.RoundTrip(reqWithBody("payload"))
+	r, err := rt.RoundTrip(reqGet())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -76,7 +99,7 @@ func TestRetry_SuccessNoRetry(t *testing.T) {
 func TestRetry_RetriesOn5xxThenSucceeds(t *testing.T) {
 	f := &fakeRT{responses: []*http.Response{resp(503), resp(200)}}
 	rt := NewRetryTransport(f)
-	r, err := rt.RoundTrip(reqWithBody("payload"))
+	r, err := rt.RoundTrip(reqGet())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -91,14 +114,14 @@ func TestRetry_RetriesOn5xxThenSucceeds(t *testing.T) {
 func TestRetry_RewindsBodyOnEachAttempt(t *testing.T) {
 	f := &fakeRT{responses: []*http.Response{resp(500), resp(500), resp(200)}}
 	rt := NewRetryTransport(f)
-	if _, err := rt.RoundTrip(reqWithBody("signed-order")); err != nil {
+	if _, err := rt.RoundTrip(reqGetWithBody("query-payload")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if f.calls != 3 {
 		t.Fatalf("want 3 calls, got %d", f.calls)
 	}
 	for i, b := range f.bodies {
-		if b != "signed-order" {
+		if b != "query-payload" {
 			t.Fatalf("attempt %d sent body %q, want full body each time", i, b)
 		}
 	}
@@ -110,7 +133,7 @@ func TestRetry_RetriesOnNetworkError(t *testing.T) {
 		errs:      []error{errors.New("conn reset"), nil},
 	}
 	rt := NewRetryTransport(f)
-	r, err := rt.RoundTrip(reqWithBody("x"))
+	r, err := rt.RoundTrip(reqGet())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -128,7 +151,7 @@ func TestRetry_GivesUpAfterMaxAttempts(t *testing.T) {
 		errs:      []error{errors.New("e"), errors.New("e"), errors.New("e")},
 	}
 	rt := NewRetryTransport(f)
-	_, err := rt.RoundTrip(reqWithBody("x"))
+	_, err := rt.RoundTrip(reqGet())
 	if err == nil {
 		t.Fatal("expected error after exhausting attempts")
 	}
@@ -137,15 +160,15 @@ func TestRetry_GivesUpAfterMaxAttempts(t *testing.T) {
 	}
 }
 
-func TestRetry_NonRewindableBodyNotRetried(t *testing.T) {
-	f := &fakeRT{responses: []*http.Response{resp(500)}}
+// TestRetry_PostNotRetriedOn5xx is the core safety guarantee: a state-changing
+// POST (order placement) that returns 5xx must be sent exactly once. Binance may
+// have executed the order before returning the error, so a retry could duplicate
+// the trade. OWASP A04:2021.
+func TestRetry_PostNotRetriedOn5xx(t *testing.T) {
+	f := &fakeRT{responses: []*http.Response{resp(500), resp(200)}}
 	rt := NewRetryTransport(f)
-	// Manually build a request with a body but no GetBody.
-	r, _ := http.NewRequest(http.MethodPost, "https://api.binance.com/order", nil)
-	r.Body = io.NopCloser(strings.NewReader("data"))
-	r.GetBody = nil
 
-	out, err := rt.RoundTrip(r)
+	out, err := rt.RoundTrip(reqPost("symbol=BTCUSDT&side=BUY&signature=abc"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -153,7 +176,43 @@ func TestRetry_NonRewindableBodyNotRetried(t *testing.T) {
 		t.Fatalf("want passthrough 500, got %d", out.StatusCode)
 	}
 	if f.calls != 1 {
-		t.Fatalf("non-idempotent request must be sent once, got %d calls", f.calls)
+		t.Fatalf("non-idempotent POST must be sent once, got %d calls", f.calls)
+	}
+}
+
+// TestRetry_PostNotRetriedOnNetworkError: a dropped connection on a POST must
+// not be retried either — the request may already have reached Binance.
+func TestRetry_PostNotRetriedOnNetworkError(t *testing.T) {
+	f := &fakeRT{
+		responses: []*http.Response{nil, resp(200)},
+		errs:      []error{errors.New("conn reset"), nil},
+	}
+	rt := NewRetryTransport(f)
+
+	_, err := rt.RoundTrip(reqPost("x"))
+	if err == nil {
+		t.Fatal("expected the transport error to surface without a retry")
+	}
+	if f.calls != 1 {
+		t.Fatalf("non-idempotent POST must be sent once, got %d calls", f.calls)
+	}
+}
+
+// TestRetry_DeleteNotRetried: order cancellation (DELETE) is likewise sent once.
+func TestRetry_DeleteNotRetried(t *testing.T) {
+	f := &fakeRT{responses: []*http.Response{resp(503), resp(200)}}
+	rt := NewRetryTransport(f)
+	r, _ := http.NewRequest(http.MethodDelete, "https://api.binance.com/api/v3/order", nil)
+
+	out, err := rt.RoundTrip(r)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out.StatusCode != 503 {
+		t.Fatalf("want passthrough 503, got %d", out.StatusCode)
+	}
+	if f.calls != 1 {
+		t.Fatalf("non-idempotent DELETE must be sent once, got %d calls", f.calls)
 	}
 }
 
